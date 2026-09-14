@@ -1,0 +1,2130 @@
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2012-2014 Ciro Mattia Gonano <ciromattia@gmail.com>
+# Copyright (c) 2013-2019 Pawel Jastrzebski <pawelj@iosphe.re>
+#
+# Permission to use, copy, modify, and/or distribute this software for
+# any purpose with or without fee is hereby granted, provided that the
+# above copyright notice and this permission notice appear in all
+# copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+# WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+# AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+# DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA
+# OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+# TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+# PERFORMANCE OF THIS SOFTWARE.
+
+from datetime import datetime, timezone
+import itertools
+import json
+from pathlib import Path
+from PySide6.QtCore import (QSize, QUrl, Qt, Signal, QIODeviceBase, QEvent, QThread, QSettings)
+from PySide6.QtGui import (QColor, QIcon, QImage, QKeyEvent, QPixmap, QDesktopServices)
+from PySide6.QtWidgets import (QApplication, QDialogButtonBox, QHBoxLayout, QLabel, QListWidgetItem, QMainWindow, QSizePolicy, QSystemTrayIcon, QFileDialog, QMessageBox, QDialog, QAbstractItemView, QListView, QTreeView, QWidget)
+from PySide6.QtNetwork import (QLocalSocket, QLocalServer)
+
+import os
+import re
+import sys
+from urllib.parse import unquote
+from time import sleep
+from shutil import move, rmtree
+from subprocess import STDOUT, PIPE, CalledProcessError
+
+import requests
+from xml.sax.saxutils import escape
+from psutil import Process
+from copy import copy
+from packaging.version import Version
+from tempfile import gettempdir, mkdtemp
+from PIL import Image
+from PIL.Image import Dither
+
+from .KCC_spread_label import LabelSpreadsDialog
+
+from .shared import HTMLStripper, sanitizeTrace, walkLevel, subprocess_run
+from .comicarchive import SEVENZIP, TAR, available_archive_tools
+from .comic2ebook import OS_SORT_KEY, flattenTree, getWorkFolder, removeNonImages, sanitizeTree
+from . import __version__
+from . import comic2ebook
+from . import metadata
+from . import kindle
+from . import KCC_ui
+from . import KCC_ui_editor
+
+
+class QApplicationMessaging(QApplication):
+    messageFromOtherInstance = Signal(bytes)
+
+    def __init__(self, argv):
+        QApplication.__init__(self, argv)
+        self._key = 'KCC'
+        self._timeout = 1000
+        self._locked = False
+        socket = QLocalSocket(self)
+        socket.connectToServer(self._key, QIODeviceBase.OpenModeFlag.WriteOnly)
+        if not socket.waitForConnected(self._timeout):
+            self._server = QLocalServer(self)
+            self._server.newConnection.connect(self.handleMessage)
+            self._server.listen(self._key)
+        else:
+            self._locked = True
+        socket.disconnectFromServer()
+
+    def __del__(self):
+        if not self._locked:
+            self._server.close()
+
+    def event(self, e):
+        if e.type() == QEvent.Type.FileOpen:
+            self.messageFromOtherInstance.emit(bytes(e.file(), 'UTF-8'))
+            return True
+        else:
+            return QApplication.event(self, e)
+
+    def isRunning(self):
+        return self._locked
+
+    def handleMessage(self):
+        socket = self._server.nextPendingConnection()
+        if socket.waitForReadyRead(self._timeout):
+            self.messageFromOtherInstance.emit(socket.readAll().data())
+
+    def sendMessage(self, message):
+        socket = QLocalSocket(self)
+        socket.connectToServer(self._key, QIODeviceBase.OpenModeFlag.WriteOnly)
+        socket.waitForConnected(self._timeout)
+        socket.write(bytes(message, 'UTF-8'))
+        socket.waitForBytesWritten(self._timeout)
+        socket.disconnectFromServer()
+
+
+class QMainWindowKCC(QMainWindow):
+    progressBarTick = Signal(str)
+    modeConvert = Signal(int)
+    addMessage = Signal(str, str, bool)
+    addTrayMessage = Signal(str, str)
+    showDialog = Signal(str, str)
+    hideProgressBar = Signal()
+    forceShutdown = Signal()
+
+
+class Icons:
+    def __init__(self):
+        self.deviceKindle = QIcon()
+        self.deviceKindle.addPixmap(QPixmap(":/Devices/icons/Kindle.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.deviceKobo = QIcon()
+        self.deviceKobo.addPixmap(QPixmap(":/Devices/icons/Kobo.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.deviceRmk = QIcon()
+        self.deviceRmk.addPixmap(QPixmap(":/Devices/icons/Rmk.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.deviceOther = QIcon()
+        self.deviceOther.addPixmap(QPixmap(":/Devices/icons/Other.png"), QIcon.Mode.Normal, QIcon.State.Off)
+
+        self.MOBIFormat = QIcon()
+        self.MOBIFormat.addPixmap(QPixmap(":/Formats/icons/MOBI.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.CBZFormat = QIcon()
+        self.CBZFormat.addPixmap(QPixmap(":/Formats/icons/CBZ.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.FOLDERFormat = QIcon()
+        self.FOLDERFormat.addPixmap(QPixmap(":/Other/icons/folder_new.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.EPUBFormat = QIcon()
+        self.EPUBFormat.addPixmap(QPixmap(":/Formats/icons/EPUB.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.KFXFormat = QIcon()
+        self.KFXFormat.addPixmap(QPixmap(":/Formats/icons/KFX.png"), QIcon.Mode.Normal, QIcon.State.Off)
+
+        self.info = QIcon()
+        self.info.addPixmap(QPixmap(":/Status/icons/info.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.warning = QIcon()
+        self.warning.addPixmap(QPixmap(":/Status/icons/warning.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        self.error = QIcon()
+        self.error.addPixmap(QPixmap(":/Status/icons/error.png"), QIcon.Mode.Normal, QIcon.State.Off)
+
+        self.programIcon = QIcon()
+        self.programIcon.addPixmap(QPixmap(":/Icon/icons/comic2ebook.png"), QIcon.Mode.Normal, QIcon.State.Off)
+
+        self.kofi = QIcon()
+        self.kofi.addPixmap(QPixmap(":/Brand/icons/kofi_symbol.png"), QIcon.Mode.Normal, QIcon.State.Off)
+        
+        self.humble = QIcon()
+        self.humble.addPixmap(QPixmap(":/Brand/icons/Humble_H-Red.png"), QIcon.Mode.Normal, QIcon.State.Off)
+
+        self.bindle = QIcon()
+        self.bindle.addPixmap(QPixmap(":/Brand/icons/Bindle_Red.png"), QIcon.Mode.Normal, QIcon.State.Off)
+
+
+class VersionThread(QThread):
+    def __init__(self, startNumber2):
+        QThread.__init__(self)
+        self.newVersion = ''
+        self.md5 = ''
+        self.barProgress = 0
+        self.answer = None
+        self.startNumber2 = startNumber2
+
+    def __del__(self):
+        self.wait()
+
+    def run(self):
+        if self.startNumber2 < 5:
+            return
+
+        try:
+            # unauthenticated API requests limit is 60 req/hour
+            if getattr(sys, 'frozen', False):
+                json_parser = requests.get("https://api.github.com/repos/ciromattia/kcc/releases/latest").json()
+
+                html_url = json_parser["html_url"]
+                latest_version = json_parser["tag_name"]
+                latest_version = re.sub(r'^v', "", latest_version)
+
+                if ("b" not in __version__ and Version(latest_version) > Version(__version__)) \
+                        or ("b" in __version__
+                            and Version(latest_version) >= Version(re.sub(r'b.*', '', __version__))):
+                    MW.addMessage.emit('<a href="' + html_url + '"><b>有新版本可用！</b></a>', 'warning',
+                                    False)
+        except Exception:
+            pass
+        
+        try:
+            announcements = requests.get('https://api.github.com/repos/axu2/kcc-messages/contents/links.json',
+                                       headers={
+                                           'Accept': 'application/vnd.github.raw+json',
+                                           'X-GitHub-Api-Version': '2022-11-28'}).json()
+            for category, payloads in announcements.items():
+                for payload in payloads:
+                    expiration = datetime.fromisoformat(payload['expiration'])
+                    if expiration < datetime.now(timezone.utc):
+                        continue
+                    delta = expiration - datetime.now(timezone.utc)
+                    time_left = f"{delta.days} 天后结束"
+                    icon = 'info'
+                    if category == 'humbleMangaBundles':
+                        icon = 'humble'
+                    if category == 'humbleComicBundles':
+                        icon = 'bindle'
+                    if category == 'kofi':
+                        icon = 'kofi'
+                    message = f"{payload.get('name')}"
+                    if payload.get('link'):
+                        message = '<a href="{}"><b>{}</b></a>'.format(payload.get('link'), payload.get('name'))
+                    if payload.get('showDeadline'):
+                        message += f': {time_left}'
+                    if category == 'humbleBundles':
+                        message += ' [推广链接]'
+                    MW.addMessage.emit(message, icon , False)
+        except Exception as e:
+            print(e)
+
+
+    def setAnswer(self, dialoganswer):
+        self.answer = dialoganswer
+
+
+class ProgressThread(QThread):
+    def __init__(self):
+        QThread.__init__(self)
+        self.running = False
+        self.content = None
+        self.progress = 0
+
+    def __del__(self):
+        self.wait()
+
+    def run(self):
+        self.running = True
+        while self.running:
+            sleep(1)
+            if self.content and GUI.conversionAlive:
+                MW.addMessage.emit(self.content + self.progress * '.', 'info', True)
+                self.progress += 1
+                if self.progress == 4:
+                    self.progress = 0
+
+    def stop(self):
+        self.running = False
+
+
+def get_options():
+    parser = comic2ebook.makeParser()
+    options = parser.parse_args()
+
+    options.profile = GUI.profiles[str(GUI.deviceBox.currentData())]['Label']
+    gui_current_format = GUI.formats[str(GUI.formatBox.currentData())]['format']
+    options.format = gui_current_format
+    if GUI.mangaBox.isChecked():
+        options.righttoleft = True
+    if GUI.lightnovelBox.isChecked():
+        options.lightnovel = True
+    if GUI.wallpaperBox.isChecked():
+        options.wallpaper = True
+    if GUI.ebokBox.isChecked():
+        options.ebok = True
+    if GUI.invertDirectionBox.isChecked():
+        options.invertdirection = True
+    if GUI.rotateBox.checkState() == Qt.CheckState.PartiallyChecked:
+        options.splitter = 2
+    elif GUI.rotateBox.checkState() == Qt.CheckState.Checked:
+        options.splitter = 1
+    if GUI.qualityBox.checkState() == Qt.CheckState.PartiallyChecked:
+        options.autoscale = True
+    elif GUI.qualityBox.checkState() == Qt.CheckState.Checked:
+        options.hq = True
+    if GUI.vertical4PanelBox.isChecked():
+        options.vertical4panel = True
+    if GUI.webtoonBox.isChecked():
+        options.webtoon = True
+    if GUI.upscaleBox.checkState() == Qt.CheckState.PartiallyChecked:
+        options.stretch = True
+    elif GUI.upscaleBox.checkState() == Qt.CheckState.Checked:
+        options.upscale = True
+    if GUI.gammaBox.isChecked() and float(GUI.gammaValue) > 0.09:
+        options.gamma = float(GUI.gammaValue)
+    if GUI.autoLevelBox.isChecked():
+        options.autolevel = True
+    if GUI.autocontrastBox.checkState() == Qt.CheckState.PartiallyChecked:
+        options.noautocontrast = True
+    elif GUI.autocontrastBox.checkState() == Qt.CheckState.Checked:
+        options.colorautocontrast = True
+    if GUI.croppingBox.isChecked():
+        if GUI.croppingBox.checkState() == Qt.CheckState.PartiallyChecked:
+            options.cropping = 1
+        else:
+            options.cropping = 2
+    else:
+        options.cropping = 0
+    if GUI.croppingBox.checkState() != Qt.CheckState.Unchecked:
+        options.croppingp = float(GUI.croppingPowerValue)
+        options.preservemargin = GUI.preserveMarginBox.value()
+    if GUI.interPanelCropBox.isChecked():
+        if GUI.interPanelCropBox.checkState() == Qt.CheckState.PartiallyChecked:
+            options.interpanelcrop = 1
+        else:
+            options.interpanelcrop = 2
+    else:
+        options.interpanelcrop = 0
+    if GUI.borderBox.checkState() == Qt.CheckState.PartiallyChecked:
+        options.white_borders = True
+    elif GUI.borderBox.checkState() == Qt.CheckState.Checked:
+        options.black_borders = True
+    if GUI.outputSplit.isChecked():
+        options.batchsplit = 2
+    if GUI.colorBox.isChecked():
+        options.forcecolor = True
+    if GUI.eraseRainbowBox.isChecked():
+        options.eraserainbow = True
+    if GUI.maximizeStrips.isChecked():
+        options.maximizestrips = True
+    if GUI.disableProcessingBox.isChecked():
+        options.noprocessing = True
+    if GUI.legacyExtractBox.isChecked():
+        options.legacyextract = True
+    if GUI.pdfWidthBox.isChecked():
+        options.pdfwidth = True
+    if GUI.smartCoverCropBox.isChecked():
+        options.smartcovercrop = True
+    if GUI.coverFillBox.isChecked():
+        options.coverfill = True
+    if GUI.metadataTitleBox.checkState() == Qt.CheckState.PartiallyChecked:
+        options.metadatatitle = 1
+    elif GUI.metadataTitleBox.checkState() == Qt.CheckState.Checked:
+        options.metadatatitle = 2
+    if GUI.keepComicInfoBox.isChecked():
+        options.keepcomicinfo = True
+    if GUI.deleteBox.isChecked():
+        options.delete = True
+    if GUI.tempDirBox.isChecked():
+        options.tempdir = True
+    if GUI.spreadShiftBox.isChecked():
+        options.spreadshift = True
+    if GUI.onePageLandscapeBox.isChecked():
+        options.onepagelandscape = True
+    if GUI.fileFusionBox.isChecked():
+        options.filefusion = True
+    else:
+        options.filefusion = False
+    if GUI.noRotateBox.isChecked():
+        options.norotate = True
+    if GUI.rotateRightBox.isChecked():
+        options.rotateright = True
+    if GUI.rotateFirstBox.isChecked():
+        options.rotatefirst = True
+    if GUI.forcePngRgbBox.isChecked():
+        options.force_png_rgb = True
+    if GUI.mozJpegBox.checkState() == Qt.CheckState.PartiallyChecked:
+        options.forcepng = True
+    elif GUI.mozJpegBox.checkState() == Qt.CheckState.Checked:
+        options.mozjpeg = True
+    if GUI.webpBox.isChecked():
+        options.webp = True
+    if GUI.pngLegacyBox.isChecked():
+        options.pnglegacy = True
+    if GUI.noQuantizeBox.isChecked():
+        options.noquantize = True
+    if GUI.jpegQualityBox.isChecked():
+        options.jpegquality = GUI.jpegQualitySpinBox.value()
+    if GUI.currentMode > 2:
+        options.customwidth = str(GUI.widthBox.value())
+        options.customheight = str(GUI.heightBox.value())
+    if GUI.targetDirectory != '':
+        options.output = GUI.targetDirectory
+    if GUI.titleEdit.text():
+        options.title = str(GUI.titleEdit.text())
+    if GUI.authorEdit.text():
+        options.author = str(GUI.authorEdit.text())
+    if GUI.languageEdit.text():
+        options.language = str(GUI.languageEdit.text())
+    if GUI.chunkSizeCheckBox.isChecked():
+        options.targetsize = int(GUI.chunkSizeBox.value())
+
+    return options, gui_current_format
+
+class WorkerThread(QThread):
+    def __init__(self):
+        QThread.__init__(self)
+        self.conversionAlive = False
+        self.errors = False
+        self.kindlegenErrorCode = [0]
+        self.workerOutput = []
+        self.progressBarTick = MW.progressBarTick
+        self.addMessage = MW.addMessage
+
+    def __del__(self):
+        self.wait()
+
+    def sync(self):
+        self.conversionAlive = GUI.conversionAlive
+
+    def clean(self):
+        GUI.progress.content = ''
+        GUI.progress.stop()
+        GUI.needClean = True
+        MW.hideProgressBar.emit()
+        MW.addMessage.emit('<b>转换已中断。</b>', 'error', False)
+        MW.addTrayMessage.emit('转换已中断。', 'Critical')
+        MW.modeConvert.emit(1)
+
+    # noinspection PyUnboundLocalVariable
+    def run(self):
+        MW.modeConvert.emit(0)
+
+        argv = ''
+        currentJobs = []
+        options, gui_current_format = get_options()
+
+        for i in range(GUI.jobList.count()):
+            # Make sure that we don't consider any system message as job to do
+            if GUI.jobList.item(i).icon().isNull():
+                currentJobs.append(str(GUI.jobList.item(i).text()))
+        GUI.jobList.clear()
+        if options.filefusion:
+            bookDir = []
+            MW.addMessage.emit('正在尝试合并文件', 'info', False)
+            for job in currentJobs:
+                bookDir.append(job)
+            try:
+                fusion_source_parent = str(Path(bookDir[0]).parent)
+                comic2ebook.options = comic2ebook.checkOptions(copy(options))
+                if options.output is None:
+                    options.output = fusion_source_parent
+                currentJobs.clear()
+                currentJobs.append(comic2ebook.makeFusion(bookDir))
+                MW.addMessage.emit('已生成合并文件：' + currentJobs[0], 'info', False)
+            except Exception as e:
+                print('合并失败。' + str(e))
+                MW.addMessage.emit('合并失败。' + str(e), 'error', True)
+        elif len(currentJobs) > 1 and options.title != 'defaulttitle':
+            currentJobs.clear()
+            error_message = '处理失败。处理多个源文件时无法设置自定义标题。\n是否忘记勾选“文件合并”？'
+            print(error_message)
+            MW.addMessage.emit(error_message, 'error', True)
+        for i, job in enumerate(currentJobs, start=1):
+            job_progress_number = f'[{i}/{len(currentJobs)}] '
+            sleep(0.5)
+            if not self.conversionAlive:
+                self.clean()
+                return
+            self.errors = False
+            MW.addMessage.emit(f'<b>{job_progress_number}源文件：</b> ' + job, 'info', False)
+            if gui_current_format == 'CBZ':
+                MW.addMessage.emit('正在生成 CBZ 文件', 'info', False)
+                GUI.progress.content = '正在生成 CBZ 文件'
+            elif gui_current_format == 'FOLDER':
+                MW.addMessage.emit('正在生成图片文件夹', 'info', False)
+                GUI.progress.content = '正在生成图片文件夹'
+            elif gui_current_format == 'PDF':
+                MW.addMessage.emit('正在生成 PDF 文件', 'info', False)
+                GUI.progress.content = '正在生成 PDF 文件'
+            else:
+                MW.addMessage.emit('正在生成 EPUB 文件', 'info', False)
+                GUI.progress.content = '正在生成 EPUB 文件'
+            jobargv = list(argv)
+            jobargv.append(job)
+            try:
+                comic2ebook.options = comic2ebook.checkOptions(copy(options))
+                outputPath = comic2ebook.makeBook(job, self, job_progress_number)
+                MW.hideProgressBar.emit()
+            except UserWarning as warn:
+                if not self.conversionAlive:
+                    self.clean()
+                    return
+                else:
+                    GUI.progress.content = ''
+                    self.errors = True
+                    MW.addMessage.emit(str(warn), 'warning', False)
+                    MW.addMessage.emit('转换出错！请查阅 <a href=\"https://github.com/ciromattia/kcc/wiki/Error-messages\">wiki</a> 了解详情。', 'error', False)
+                    MW.addTrayMessage.emit('转换出错！', 'Critical')
+            except Exception as err:
+                GUI.progress.content = ''
+                self.errors = True
+                _, _, traceback = sys.exc_info()
+                MW.showDialog.emit("转换出错 %s：\n\n%s\n\n堆栈跟踪：\n%s"
+                                   % (jobargv[-1], str(err), sanitizeTrace(traceback)), 'error')
+                MW.addMessage.emit('转换出错！请查阅 <a href=\"https://github.com/ciromattia/kcc/wiki/Error-messages\">wiki</a> 了解详情。', 'error', False)
+                MW.addTrayMessage.emit('转换出错！', 'Critical')
+            if not self.conversionAlive:
+                if 'outputPath' in locals():
+                    for item in outputPath:
+                        if os.path.exists(item):
+                            os.remove(item)
+                self.clean()
+                return
+            if not self.errors:
+                GUI.progress.content = ''
+                if gui_current_format == 'CBZ':
+                    MW.addMessage.emit('正在生成 CBZ 文件…… <b>完成！</b>', 'info', True)
+                elif gui_current_format == 'FOLDER':
+                    MW.addMessage.emit('正在生成图片文件夹…… <b>完成！</b>', 'info', True)
+                elif gui_current_format == 'PDF':
+                    MW.addMessage.emit('正在生成 PDF 文件…… <b>完成！</b>', 'info', True)
+                else:
+                    MW.addMessage.emit('正在生成 EPUB 文件…… <b>完成！</b>', 'info', True)
+                if 'MOBI' in gui_current_format and not options.lightnovel:
+                    MW.progressBarTick.emit(f'{job_progress_number}正在生成 MOBI 文件')
+                    MW.progressBarTick.emit(str(len(outputPath) * 2 + 1))
+                    MW.progressBarTick.emit('tick')
+                    MW.addMessage.emit('正在生成 MOBI 文件', 'info', False)
+                    GUI.progress.content = '正在生成 MOBI 文件'
+                    work = []
+                    for item in outputPath:
+                        work.append([item])
+                    self.workerOutput = comic2ebook.makeMOBI(work, self)
+                    self.kindlegenErrorCode = [0]
+                    for errors in self.workerOutput:
+                        if errors[0] != 0:
+                            self.kindlegenErrorCode = errors
+                            break
+                    if not self.conversionAlive:
+                        for item in outputPath:
+                            if os.path.exists(item):
+                                os.remove(item)
+                            if os.path.exists(item.replace('.epub', '.mobi')):
+                                os.remove(item.replace('.epub', '.mobi'))
+                        self.clean()
+                        return
+                    if self.kindlegenErrorCode[0] == 0:
+                        GUI.progress.content = ''
+                        MW.addMessage.emit('正在生成 MOBI 文件…… <b>完成！</b>', 'info', True)
+                        MW.addMessage.emit('正在处理 MOBI 文件', 'info', False)
+                        GUI.progress.content = '正在处理 MOBI 文件'
+                        self.workerOutput = []
+                        for item in outputPath:
+                            self.workerOutput.append(comic2ebook.makeMOBIFix(
+                                item, comic2ebook.options.covers[outputPath.index(item)][1]))
+                            MW.progressBarTick.emit('tick')
+                        for success in self.workerOutput:
+                            if not success[0]:
+                                self.errors = True
+                                break
+                        if not self.errors:
+                            for item in outputPath:
+                                GUI.progress.content = ''
+                                mobiPath = item.replace('.epub', '.mobi')
+                                if GUI.targetDirectory and GUI.targetDirectory != os.path.dirname(mobiPath):
+                                    try:
+                                        move(mobiPath, GUI.targetDirectory)
+                                    except Exception:
+                                        pass
+                            MW.addMessage.emit('正在处理 MOBI 文件…… <b>完成！</b>', 'info', True)
+                            k = kindle.Kindle(options.profile)
+                            if k.path and k.coverSupport:
+                                for item in outputPath:
+                                    cover = comic2ebook.options.covers[outputPath.index(item)][0]
+                                    if cover:
+                                        cover.saveToKindle(
+                                            k, comic2ebook.options.covers[outputPath.index(item)][1])
+                                MW.addMessage.emit('检测到 Kindle，正在上传封面…… <b>完成！</b>', 'info', False)
+                        else:
+                            GUI.progress.content = ''
+                            for item in outputPath:
+                                mobiPath = item.replace('.epub', '.mobi')
+                                if os.path.exists(mobiPath):
+                                    os.remove(mobiPath)
+                            MW.addMessage.emit('处理 MOBI 文件失败！', 'error', False)
+                            MW.addTrayMessage.emit('处理 MOBI 文件失败！', 'Critical')
+                    else:
+                        GUI.progress.content = ''
+                        epubSize = (os.path.getsize(self.kindlegenErrorCode[2])) // 1024 // 1024
+                        for item in outputPath:
+                            if os.path.exists(item):
+                                os.remove(item)
+                            if os.path.exists(item.replace('.epub', '.mobi')):
+                                os.remove(item.replace('.epub', '.mobi'))
+                        MW.addMessage.emit('KindleGen 生成 MOBI 失败！', 'error', False)
+                        MW.addMessage.emit(self.kindlegenErrorCode[1], 'error', False)
+                        MW.addTrayMessage.emit('KindleGen 生成 MOBI 失败！', 'Critical')
+                        if self.kindlegenErrorCode[0] == 1 and self.kindlegenErrorCode[1] != '':
+                            MW.showDialog.emit("KindleGen 错误：\n\n" + self.kindlegenErrorCode[1], 'error')
+                        if self.kindlegenErrorCode[0] == 23026:
+                            MW.addMessage.emit('生成的 EPUB 文件过大。文件结构异常？', 'error', False)
+                            MW.addMessage.emit('EPUB 文件：' + str(epubSize) + 'MB。支持的体积约为 350MB。', 'error',
+                                               False)
+                else:
+                    for item in outputPath:
+                        if GUI.targetDirectory and GUI.targetDirectory != os.path.dirname(item):
+                            try:
+                                move(item, GUI.targetDirectory)
+                            except Exception:
+                                pass
+        GUI.progress.content = ''
+        GUI.progress.stop()
+        MW.hideProgressBar.emit()
+        GUI.needClean = True
+        if not self.errors:
+            MW.addMessage.emit('<b>全部任务已完成。</b>', 'info', False)
+            MW.addTrayMessage.emit('全部任务已完成。', 'Information')
+        MW.modeConvert.emit(1)
+
+
+class SystemTrayIcon(QSystemTrayIcon):
+    def __init__(self):
+        super().__init__()
+        if self.isSystemTrayAvailable():
+            self.setIcon(GUI.icons.programIcon)
+            self.activated.connect(self.catchClicks)
+
+    def catchClicks(self):
+        MW.showNormal()
+        MW.raise_()
+        MW.activateWindow()
+
+    def addTrayMessage(self, message, icon):
+        icon = getattr(QSystemTrayIcon.MessageIcon, icon)
+        if self.supportsMessages() and not MW.isActiveWindow():
+            self.showMessage('Kindle 漫画转换器', message, icon)
+
+
+class KCCGUI(KCC_ui.Ui_mainWindow):
+    def selectDefaultOutputFolder(self):
+        dname = QFileDialog.getExistingDirectory(MW, '选择默认输出文件夹', self.defaultOutputFolder)
+        if self.is_directory_on_kindle(dname):
+            return
+        if dname != '':
+            if sys.platform.startswith('win'):
+                dname = dname.replace('/', '\\')
+            GUI.defaultOutputFolder = dname
+
+    def is_directory_on_kindle(self, dname):
+        path = Path(dname)
+        for parent in itertools.chain([path], path.parents):
+            if parent.name == 'documents' and parent.parent.joinpath('system').joinpath('thumbnails').is_dir():
+                self.addMessage("不能把 Kindle 设为输出目录", 'error')
+                return True
+
+    def selectOutputFolder(self):
+        dname = QFileDialog.getExistingDirectory(MW, '选择输出目录', self.lastPath)
+        if self.is_directory_on_kindle(dname):
+            return
+        if dname != '':
+            if sys.platform.startswith('win'):
+                dname = dname.replace('/', '\\')
+            GUI.targetDirectory = dname
+        else:
+            GUI.targetDirectory = ''
+        return GUI.targetDirectory
+
+    def selectFile(self):
+        if self.needClean:
+            self.needClean = False
+            GUI.jobList.clear()
+        if self.tar or self.sevenzip:
+            fnames = QFileDialog.getOpenFileNames(MW, '选择文件', self.lastPath,
+                                                            '漫画文件 (*.cbz *.cbr *.cb7 *.zip *.rar *.7z *.epub *.pdf);;所有文件 (*.*)')
+        else:
+            fnames = QFileDialog.getOpenFileNames(MW, '选择文件', self.lastPath,
+                                                            '漫画文件 (*.pdf);;所有文件 (*.*)')
+        for fname in fnames[0]:
+            if fname != '':
+                self.lastPath = os.path.abspath(os.path.join(fname, os.pardir))
+                GUI.jobList.addItem(fname)
+                GUI.jobList.scrollToBottom()
+
+    def selectDir(self):
+        if self.needClean:
+            self.needClean = False
+            GUI.jobList.clear()
+ 
+        dialog = QFileDialog(MW, '选择输入文件夹', self.lastPath)
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.findChild(QTreeView).setSelectionMode(QAbstractItemView.ExtendedSelection)
+
+        if dialog.exec():
+            dnames = dialog.selectedFiles()
+            for dname in dnames:
+                if dname != '':
+                    self.lastPath = os.path.abspath(os.path.join(dname, os.pardir))
+                    GUI.jobList.addItem(dname)
+                    GUI.jobList.scrollToBottom()
+
+    def labelSpreadsStart(self):
+        low_quality_preview = False
+        if QApplication.keyboardModifiers() == Qt.ShiftModifier:
+            low_quality_preview = True
+        currentJobs = []
+        # TODO: make this a function since it's copy pasted
+        for i in range(GUI.jobList.count()):
+            # Make sure that we don't consider any system message as job to do
+            if GUI.jobList.item(i).icon().isNull():
+                currentJobs.append(str(GUI.jobList.item(i).text()))
+        for job in currentJobs:
+            images = []
+            spreads = []
+            options, _ = get_options()
+            options.profileData = [(600, 800), (600,800)]
+            path = getWorkFolder(job, options)
+            removeNonImages(path)
+            sanitizeTree(path, options)
+            flattenTree(path)
+
+            if options.tempdir:
+                workdir = mkdtemp('', 'KCC-', os.path.dirname(job))
+            else:
+                workdir = mkdtemp('', 'KCC-')
+
+            for root, _, files in os.walk(path):
+                files.sort(key=OS_SORT_KEY)
+                start_index = 0
+                if job.endswith('.pdf') or job.endswith('.epub'):
+                    start_index = 1
+                if options.spreadshift:
+                    start_index = 0 if start_index == 1 else 1
+                for i in range(start_index, len(files), 2):
+                    if i  == len(files) - 1:
+                        continue 
+                    # TODO: with statements
+                    # TODO: ignore 1% of top and bottom too?
+                    im1 = Image.open(os.path.join(root, files[i]))
+                    im2 = Image.open(os.path.join(root, files[i+1]))
+                    if not options.righttoleft:
+                        im1, im2 = im2, im1
+                    size1 = im1.size
+                    size2 = im2.size
+
+                    preview_crop1 = im1.crop((0, 0, 0.2*size1[0], size1[1]))
+                    if low_quality_preview:
+                        preview_crop1 = preview_crop1.convert('1', dither=Dither.NONE)
+                    calculation_crop1 = im1.crop((0.01*size1[0], 0, 0.04*size1[0], size1[1])).convert('1', dither=Dither.NONE)
+
+                    preview_crop2 = im2.crop((0.8*size2[0], 0, size2[0], size2[1]))
+                    if low_quality_preview:
+                        preview_crop2 = preview_crop2.convert('1', dither=Dither.NONE)
+                    calculation_crop2 = im2.crop((0.96*size2[0], 0, .99* size2[0], size2[1])).convert('1', dither=Dither.NONE)
+
+                    # dst = Image.new('1', (im1.width + im2.width, im1.height))
+                    # dst.paste(im2, (0, 0))
+                    # dst.paste(im1, (im1.width, 0))
+                    hist1 = calculation_crop1.histogram()
+                    hist2 = calculation_crop2.histogram()
+                    # TODO: small percentage instead of zero
+                    if hist1[0] == 0 or hist1[-1] == 0 or hist2[0] == 0 or hist2[-1] == 0:
+                        continue
+
+                    preview_mode = '1' if low_quality_preview else 'RGB'
+                    dst = Image.new(preview_mode, (preview_crop1.width + preview_crop2.width, preview_crop1.height))
+
+                    dst.paste(preview_crop2, (0, 0))
+                    dst.paste(preview_crop1, (preview_crop1.width, 0))
+                    dst.save(os.path.join(workdir, f'label-{i:04}.png'))
+                    images.append(os.path.join(workdir, f'label-{i:04}.png'))
+
+                if images:
+                    dlg = LabelSpreadsDialog(APP.primaryScreen().availableGeometry().height(), images, spreads)
+                    dlg.setWindowTitle(job)
+                    if dlg.exec() == 1:
+                        with open(job+'.json', "w") as fp:
+                            # TODO: not very clean to grab index from filename
+                            spreads = [int(filename[6:10]) for filename in spreads]
+                            json.dump({'spreads': sorted(set(spreads))} , fp) 
+                rmtree(path, True)
+                rmtree(workdir, True)
+
+    def selectFileMetaEditor(self, sname):
+        files = []
+        if not sname:
+            if QApplication.keyboardModifiers() == Qt.ShiftModifier:
+                # Multi-directory selection for bulk editing ComicInfo.xml
+                dialog = QFileDialog(MW, '选择分卷目录', self.lastPath)
+                dialog.setFileMode(QFileDialog.FileMode.Directory)
+                dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+                dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+                
+                # Enable multi-selection in the dialog (may not work with native dialog on all platforms)
+                file_view = dialog.findChild(QListView, 'listView')
+                if file_view:
+                    file_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+                file_tree = dialog.findChild(QTreeView)
+                if file_tree:
+                    file_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+                
+                if dialog.exec():
+                    selected_dirs = dialog.selectedFiles()
+                    if selected_dirs:
+                        files = [os.path.join(d, 'ComicInfo.xml') for d in selected_dirs]
+                        self.lastPath = os.path.dirname(selected_dirs[0])
+            else:
+                if self.sevenzip:
+                    fnames = QFileDialog.getOpenFileNames(MW, '选择文件', self.lastPath,
+                                                          '漫画文件 (*.cbz *.cbr *.cb7)')
+                    files = fnames[0]
+                    if files:
+                        self.lastPath = os.path.abspath(os.path.join(files[0], os.pardir))
+                else:
+                    self.showDialog("由于缺少 7z，编辑器已被禁用。", 'error')
+                    self.addMessage('<a href=\"https://github.com/ciromattia/kcc#7-zip\">安装 7z（链接）</a> 以启用元数据编辑。', 'warning')
+        else:
+            files = [sname]
+        
+        if files:
+            try:
+                self.editor.loadData(files)
+            except Exception as err:
+                _, _, traceback = sys.exc_info()
+                self.showDialog("解析元数据失败！\n\n%s\n\n堆栈跟踪：\n%s"
+                                % (str(err), sanitizeTrace(traceback)), 'error')
+            else:
+                self.editor.ui.exec_()
+
+    def clearJobs(self):
+        GUI.jobList.clear()
+
+    def openWiki(self):
+        # noinspection PyCallByClass
+        QDesktopServices.openUrl(QUrl('https://github.com/ciromattia/kcc/wiki'))
+
+    def openKofi(self):
+        # noinspection PyCallByClass
+        QDesktopServices.openUrl(QUrl('https://ko-fi.com/eink_dude'))
+
+    def openHumble(self):
+        # noinspection PyCallByClass
+        QDesktopServices.openUrl(QUrl('https://humblebundleinc.sjv.io/3JaR3A'))
+
+    def toggleExpert(self):
+        # noinspection PyCallByClass
+        if self.expertMode:
+            self.hide_expert_options()
+            self.expertMode = False   
+        else:
+            self.show_expert_options()
+            self.expertMode = True 
+
+    def show_expert_options(self):
+        GUI.spreadShiftBox.show()
+        GUI.fileFusionBox.show()
+        GUI.jpegQualityBox.show()
+        GUI.pngLegacyBox.show()
+        GUI.webpBox.show()
+        GUI.lightnovelBox.show()
+        GUI.wallpaperBox.show()
+        GUI.outputSplit.show()
+        GUI.maximizeStrips.show()
+        GUI.noRotateBox.show()
+        GUI.rotateFirstBox.show()
+        GUI.coverFillBox.show()
+        GUI.rotateRightBox.show()
+        GUI.smartCoverCropBox.show()
+        GUI.onePageLandscapeBox.show()
+        GUI.qualityBox.show()
+        GUI.gammaBox.show()
+        GUI.interPanelCropBox.show()
+        GUI.autoLevelBox.show()
+        GUI.autocontrastBox.show()
+        GUI.vertical4PanelBox.show()
+        GUI.tempDirBox.show()
+        GUI.deleteBox.show()
+        GUI.metadataTitleBox.show()
+        GUI.keepComicInfoBox.show()
+        GUI.pdfWidthBox.show()
+        GUI.chunkSizeCheckBox.show()
+        GUI.disableProcessingBox.show()
+        GUI.noQuantizeBox.show()
+        GUI.forcePngRgbBox.show()
+        GUI.invertDirectionBox.show()
+        GUI.ebokBox.show()
+        GUI.languageEdit.show()
+        GUI.labelSpreadsButton.show()
+        GUI.editorButton.show()
+        GUI.easyLabel.hide()
+
+    def hide_expert_options(self):
+        GUI.spreadShiftBox.hide()
+        GUI.fileFusionBox.hide()
+        GUI.jpegQualityBox.hide()
+        GUI.pngLegacyBox.hide()
+        GUI.webpBox.hide()
+        GUI.lightnovelBox.hide()
+        GUI.wallpaperBox.hide()
+        GUI.outputSplit.hide()
+        GUI.maximizeStrips.hide()
+        GUI.noRotateBox.hide()
+        GUI.rotateFirstBox.hide()
+        GUI.coverFillBox.hide()
+        GUI.rotateRightBox.hide()
+        GUI.smartCoverCropBox.hide()
+        GUI.onePageLandscapeBox.hide()
+        GUI.qualityBox.hide()
+        GUI.gammaBox.hide()
+        GUI.interPanelCropBox.hide()
+        GUI.autoLevelBox.hide()
+        GUI.autocontrastBox.hide()
+        GUI.vertical4PanelBox.hide()
+        GUI.tempDirBox.hide()
+        GUI.deleteBox.hide()
+        GUI.metadataTitleBox.hide()
+        GUI.keepComicInfoBox.hide()
+        GUI.pdfWidthBox.hide()
+        GUI.chunkSizeCheckBox.hide()
+        GUI.disableProcessingBox.hide()
+        GUI.noQuantizeBox.hide()
+        GUI.forcePngRgbBox.hide()
+        GUI.invertDirectionBox.hide()
+        GUI.ebokBox.hide()
+        GUI.languageEdit.hide()
+        GUI.labelSpreadsButton.hide()
+        GUI.editorButton.hide()
+        GUI.easyLabel.show()
+
+    def openYouTube(self):
+        # noinspection PyCallByClass
+        QDesktopServices.openUrl(QUrl('https://www.youtube.com/@eink-dude'))
+    
+    def openDiscord(self):
+        # noinspection PyCallByClass
+        QDesktopServices.openUrl(QUrl('https://discord.gg/um5JRKwmGT'))
+
+    def modeChange(self, mode):
+        if mode == 1:
+            self.currentMode = 1
+            GUI.gammaWidget.setVisible(False)
+            GUI.customWidget.setVisible(False)
+        elif mode == 2:
+            self.currentMode = 2
+            GUI.gammaWidget.setVisible(True)
+            GUI.customWidget.setVisible(False)
+        elif mode == 3:
+            self.currentMode = 3
+            GUI.gammaWidget.setVisible(True)
+            GUI.customWidget.setVisible(True)
+
+    def modeConvert(self, enable):
+        if enable < 1:
+            status = False
+        else:
+            status = True
+        GUI.editorButton.setEnabled(status)
+        GUI.deviceBox.setEnabled(status)
+        GUI.defaultOutputFolderButton.setEnabled(status)
+        GUI.clearButton.setEnabled(status)
+        GUI.fileButton.setEnabled(status)
+        GUI.formatBox.setEnabled(status)
+        GUI.optionWidget.setEnabled(status)
+        GUI.gammaWidget.setEnabled(status)
+        GUI.customWidget.setEnabled(status)
+        GUI.convertButton.setEnabled(True)
+        if enable == 1:
+            self.conversionAlive = False
+            self.worker.sync()
+            icon = QIcon()
+            icon.addPixmap(QPixmap(":/Other/icons/convert.png"), QIcon.Mode.Normal, QIcon.State.Off)
+            GUI.convertButton.setIcon(icon)
+            GUI.convertButton.setText('开始转换')
+            GUI.centralWidget.setAcceptDrops(True)
+        elif enable == 0:
+            self.conversionAlive = True
+            self.worker.sync()
+            icon = QIcon()
+            icon.addPixmap(QPixmap(":/Other/icons/clear.png"), QIcon.Mode.Normal, QIcon.State.Off)
+            GUI.convertButton.setIcon(icon)
+            GUI.convertButton.setText('中止')
+            GUI.centralWidget.setAcceptDrops(False)
+        elif enable == -1:
+            self.conversionAlive = True
+            self.worker.sync()
+            GUI.convertButton.setEnabled(False)
+            GUI.centralWidget.setAcceptDrops(False)
+
+    def togglegammaBox(self, value):
+        if value:
+            if self.currentMode != 3:
+                self.modeChange(2)
+        else:
+            if self.currentMode != 3:
+                self.modeChange(1)
+
+    def togglecroppingBox(self, value):
+        if value:
+            GUI.croppingWidget.setVisible(True)
+        else:
+            GUI.croppingWidget.setVisible(False)
+            self.changeCroppingPower(100)  # 1.0
+
+    def togglejpegqualityBox(self, value):
+        if value:
+            GUI.jpegQualityWidget.setVisible(True)
+        else:
+            GUI.jpegQualityWidget.setVisible(False)
+
+    def togglewebtoonBox(self, value):
+        if value:
+            self.addMessage('在条漫模式下，可选择更高的设备配置以获得更高的分块。', 'info')
+            self.addMessage('试试在横向模式下并排阅读条漫面板！', 'info')
+            GUI.qualityBox.setEnabled(False)
+            GUI.qualityBox.setChecked(False)
+            GUI.mangaBox.setEnabled(False)
+            GUI.mangaBox.setChecked(False)
+            GUI.rotateBox.setEnabled(False)
+            GUI.rotateBox.setChecked(False)
+            GUI.borderBox.setEnabled(False)
+            GUI.borderBox.setCheckState(Qt.CheckState.PartiallyChecked)
+            # GUI.upscaleBox.setEnabled(False)
+            # GUI.upscaleBox.setChecked(False)
+            GUI.croppingBox.setEnabled(False)
+            GUI.croppingBox.setChecked(False)
+            GUI.interPanelCropBox.setEnabled(False)
+            GUI.interPanelCropBox.setChecked(False)
+            GUI.autoLevelBox.setEnabled(False)
+            GUI.autoLevelBox.setChecked(False)
+            GUI.autocontrastBox.setEnabled(False)
+            GUI.autocontrastBox.setChecked(False)
+        else:
+            profile = GUI.profiles[str(GUI.deviceBox.currentData())]
+            if profile['PVOptions']:
+                GUI.qualityBox.setEnabled(True)
+            GUI.mangaBox.setEnabled(True)
+            GUI.rotateBox.setEnabled(True)
+            GUI.borderBox.setEnabled(True)
+            profile = GUI.profiles[str(GUI.deviceBox.currentData())]
+            if not profile['Label'].startswith('KS') or True:
+                GUI.upscaleBox.setEnabled(True)
+            GUI.croppingBox.setEnabled(True)
+            GUI.interPanelCropBox.setEnabled(True)
+            GUI.autoLevelBox.setEnabled(True)
+            GUI.autocontrastBox.setEnabled(True)
+
+
+    def togglequalityBox(self, value):
+        profile = GUI.profiles[str(GUI.deviceBox.currentData())]
+        if value == 2:
+            if profile['Label'] not in ('K57', 'KPW', 'K810') :
+                self.addMessage('此选项针对较老的 Kindle 机型。', 'warning')
+                self.addMessage('在该设备上会出现转换速度和质量问题。', 'warning')
+                self.addMessage('如需在放大时获得更高分辨率，请使用 Kindle Scribe 配置。', 'warning')
+            GUI.upscaleBox.setEnabled(False)
+            GUI.upscaleBox.setChecked(True)
+        else:
+            GUI.upscaleBox.setEnabled(True)
+            GUI.upscaleBox.setChecked(profile['DefaultUpscale'])
+
+    def toggleImageFormatBox(self, value):
+        profile = GUI.profiles[str(GUI.deviceBox.currentData())]
+        if value == 1:
+            if profile['Label'].startswith('KS'):
+                current_format = GUI.formats[str(GUI.formatBox.currentData())]['format']
+                for bad_format in ('MOBI', 'EPUB'):
+                    if bad_format in current_format:
+                        self.addMessage('Scribe 使用 PNG 生成 MOBI/EPUB 时常出现空白页/空白段等问题，请改用 JPG。', 'warning')
+                        break
+            GUI.pngLegacyBox.setEnabled(True)
+            GUI.noQuantizeBox.setEnabled(True)
+            GUI.forcePngRgbBox.setEnabled(True)
+        else:
+            GUI.pngLegacyBox.setEnabled(False)
+            GUI.noQuantizeBox.setEnabled(False)
+            GUI.forcePngRgbBox.setEnabled(False)           
+
+    def toggleWallpaperBox(self, value):
+        if value == 2:
+            GUI.mozJpegBox.setCheckState(Qt.CheckState.PartiallyChecked)
+            GUI.pngLegacyBox.setChecked(True)
+            GUI.rotateBox.setChecked(True)
+            GUI.noRotateBox.setChecked(True)
+            GUI.upscaleBox.setChecked(True)
+            self.changeFormat(3)
+
+    def togglechunkSizeCheckBox(self, value):
+        GUI.chunkSizeWidget.setVisible(value)
+
+    def toggletitleEdit(self, value):
+        if value:
+            self.metadataTitleBox.setChecked(False)
+
+    def togglefileFusionBox(self, value):
+        if value:
+            GUI.metadataTitleBox.setChecked(False)
+            GUI.metadataTitleBox.setEnabled(False)
+        else:
+            GUI.metadataTitleBox.setEnabled(True)
+
+    def togglemetadataTitleBox(self, value):
+        if value:
+            GUI.titleEdit.setText(None)
+
+    def editSourceMetadata(self, item):
+        if item.icon().isNull():
+            sname = item.text()
+            if os.path.isdir(sname):
+                sname = os.path.join(sname, "ComicInfo.xml")
+            self.selectFileMetaEditor(sname)
+
+    def changeGamma(self, value):
+        valueRaw = int(5 * round(float(value) / 5))
+        value = '%.2f' % (float(valueRaw) / 100)
+        if float(value) <= 0.09:
+            GUI.gammaLabel.setText('伽马：自动')
+        else:
+            GUI.gammaLabel.setText('伽马：' + str(value))
+        GUI.gammaSlider.setValue(valueRaw)
+        self.gammaValue = value
+
+    def changeCroppingPower(self, value):
+        valueRaw = int(5 * round(float(value) / 5))
+        value = '%.2f' % (float(valueRaw) / 100)
+        GUI.croppingPowerLabel.setText('裁剪力度：' + str(value))
+        GUI.croppingPowerSlider.setValue(valueRaw)
+        self.croppingPowerValue = value
+
+    def changeDevice(self):
+        profile = GUI.profiles[str(GUI.deviceBox.currentData())]
+        if profile['ForceExpert']:
+            self.modeChange(3)
+        elif GUI.gammaBox.isChecked():
+            self.modeChange(2)
+        else:
+            self.modeChange(1)
+        GUI.colorBox.setChecked(profile['ForceColor'])
+        self.changeFormat()
+        if not GUI.webtoonBox.isChecked():
+            GUI.qualityBox.setEnabled(profile['PVOptions'])
+        GUI.upscaleBox.setChecked(profile['DefaultUpscale'])
+        if profile['Label'].startswith('KS') and False:
+            GUI.upscaleBox.setDisabled(True)
+        else:
+            if not GUI.webtoonBox.isChecked() or True:
+                GUI.upscaleBox.setEnabled(True)
+        if profile['Label'] == 'KCS':
+            current_format = GUI.formats[str(GUI.formatBox.currentData())]['format']
+            for bad_format in ('MOBI', 'EPUB'):
+                if bad_format in current_format:
+                    self.addMessage('Colorsoft 的 MOBI/EPUB 可能出现空白页。往回翻几页、退出再重新进入书籍即可恢复。', 'info')
+                    break
+        elif profile['Label'] == 'KDX':
+            GUI.mozJpegBox.setCheckState(Qt.CheckState.PartiallyChecked)
+            GUI.borderBox.setCheckState(Qt.CheckState.PartiallyChecked)
+            GUI.pngLegacyBox.setChecked(True)
+        if not profile['PVOptions']:
+            GUI.qualityBox.setChecked(False)
+        if str(GUI.deviceBox.currentData()) == 'Other':
+            self.addMessage('<a href=\"https://github.com/ciromattia/kcc/wiki/NonKindle-devices\">非 Kindle 设备支持列表。</a>', 'info')
+
+    def changeFormat(self, outputformat=None):
+        profile = GUI.profiles[str(GUI.deviceBox.currentData())]
+        if outputformat is not None:
+            GUI.formatBox.setCurrentIndex(outputformat)
+        else:
+            GUI.formatBox.setCurrentIndex(profile['DefaultFormat'])
+        if not GUI.webtoonBox.isChecked():
+            GUI.qualityBox.setEnabled(profile['PVOptions'])
+        if GUI.formats[str(GUI.formatBox.currentData())]['format'] == 'MOBI':
+            GUI.outputSplit.setEnabled(True)
+        else:
+            GUI.outputSplit.setEnabled(False)
+            GUI.outputSplit.setChecked(False)
+        if (GUI.formats[str(GUI.formatBox.currentData())]['format'] == 'EPUB-200MB' or
+            GUI.formats[str(GUI.formatBox.currentData())]['format'] == 'MOBI+EPUB-200MB'):
+            GUI.chunkSizeCheckBox.setEnabled(False)
+            GUI.chunkSizeCheckBox.setChecked(False)
+        elif GUI.formats[str(GUI.formatBox.currentData())]['format'] == 'KFX':
+            GUI.mozJpegBox.setCheckState(Qt.CheckState.PartiallyChecked)
+            GUI.upscaleBox.setChecked(True)
+        elif not GUI.webtoonBox.isChecked():
+            GUI.chunkSizeCheckBox.setEnabled(True)
+        if GUI.formats[str(GUI.formatBox.currentData())]['format'] in ('CBZ', 'FOLDER', 'PDF') and not GUI.webtoonBox.isChecked():
+            self.addMessage("如果不希望 KCC 扩展图像边距，请把“黑白边距”设为半选。", 'info')
+            GUI.borderBox.setCheckState(Qt.CheckState.PartiallyChecked)
+            GUI.mozJpegBox.setCheckState(Qt.CheckState.PartiallyChecked)
+        else:
+            GUI.borderBox.setCheckState(Qt.CheckState.Unchecked)
+
+    def stripTags(self, html):
+        s = HTMLStripper()
+        s.feed(html)
+        return s.get_data()
+
+    def addMessage(self, message, icon, replace=False):
+        if icon != '':
+            icon = getattr(self.icons, icon)
+            item = QListWidgetItem(icon, '   ' + self.stripTags(message))
+        else:
+            item = QListWidgetItem('   ' + self.stripTags(message))
+        if replace:
+            GUI.jobList.takeItem(GUI.jobList.count() - 1)
+        # Due to lack of HTML support in QListWidgetItem we overlay text field with QLabel
+        # We still fill original text field with transparent content to trigger creation of horizontal scrollbar
+        item.setForeground(QColor('transparent'))
+        label = QLabel(message)
+        label.setOpenExternalLinks(True)
+        GUI.jobList.addItem(item)
+        GUI.jobList.setItemWidget(item, label)
+        GUI.jobList.scrollToBottom()
+
+    def showDialog(self, message, kind):
+        if kind == 'error':
+            QMessageBox.critical(MW, 'KCC - 错误', message, QMessageBox.StandardButton.Ok)
+        elif kind == 'question':
+            GUI.versionCheck.setAnswer(QMessageBox.question(MW, 'KCC - 询问', message,
+                                                                      QMessageBox.Yes,
+                                                                      QMessageBox.No))
+
+    def updateProgressbar(self, command):
+        if command == 'tick':
+            GUI.progressBar.setValue(GUI.progressBar.value() + 1)
+        elif command.isdigit():
+            GUI.progressBar.setMaximum(int(command) - 1)
+            GUI.toolWidget.hide()
+            GUI.progressBar.reset()
+            GUI.progressBar.show()
+        else:
+            GUI.progressBar.setFormat(command)
+
+    def hideProgressBar(self):
+        GUI.progressBar.hide()
+        GUI.toolWidget.show()
+
+    def convertStart(self):
+        if self.conversionAlive:
+            GUI.convertButton.setEnabled(False)
+            self.addMessage('进程将被中断，请稍候。', 'warning')
+            self.conversionAlive = False
+            self.worker.sync()
+        else:
+            if QApplication.keyboardModifiers() == Qt.KeyboardModifier.ShiftModifier:
+                if not self.selectOutputFolder():
+                    return
+            elif GUI.defaultOutputFolderBox.isChecked():
+                self.targetDirectory = self.defaultOutputFolder
+            else:
+                GUI.targetDirectory = ''
+            self.progress.start()
+            if self.needClean:
+                self.needClean = False
+                GUI.jobList.clear()
+            if GUI.jobList.count() == 0:
+                self.addMessage('未选择文件！请先选择要转换的文件。', 'error')
+                self.needClean = True
+                return
+            if GUI.defaultOutputFolderBox.checkState() == Qt.CheckState.PartiallyChecked:
+                parent = Path(self.jobList.item(0).text()).parent
+                target_path = parent.joinpath(f"{parent.name}")
+                if not target_path.exists():
+                    target_path.mkdir()
+                self.targetDirectory = str(target_path)
+            if self.currentMode > 2 and (GUI.widthBox.value() == 0 or GUI.heightBox.value() == 0):
+                GUI.jobList.clear()
+                self.addMessage('未设置目标分辨率！', 'error')
+                self.needClean = True
+                return
+            if 'MOBI' in GUI.formats[str(GUI.formatBox.currentData())]['format'] and not self.kindleGen:
+                self.detectKindleGen()
+                if not self.kindleGen:
+                    GUI.jobList.clear()
+                    self.display_kindlegen_missing()
+                    self.needClean = True
+                    return
+            self.worker.start()
+
+    def display_kindlegen_missing(self):
+        self.addMessage(
+            '<a href=\"https://github.com/ciromattia/kcc#kindlegen\"><b>安装 KindleGen（链接）</b></a> 以启用 Kindle 的 MOBI 转换！',
+            'error'
+        )
+
+    def saveSettings(self, event):
+        if self.conversionAlive:
+            GUI.convertButton.setEnabled(False)
+            self.addMessage('进程将被中断，请稍候。', 'warning')
+            self.conversionAlive = False
+            self.worker.sync()
+            event.ignore()
+        if not GUI.convertButton.isEnabled():
+            event.ignore()
+        self.settings.setValue('settingsVersion', __version__)
+        self.settings.setValue('expertMode', self.expertMode)
+        self.settings.setValue('lastPath', self.lastPath)
+        self.settings.setValue('defaultOutputFolder', self.defaultOutputFolder)
+        self.settings.setValue('lastDevice', GUI.deviceBox.currentIndex())
+        self.settings.setValue('currentFormat', GUI.formatBox.currentIndex())
+        self.settings.setValue('startNumber', self.startNumber + 1)
+        self.settings.setValue('startNumber2', self.startNumber2 + 1)
+        self.settings.setValue('windowSize', str(MW.size().width()) + 'x' + str(MW.size().height()))
+        self.settings.setValue('options', {'mangaBox': GUI.mangaBox.checkState(),
+                                           'lightnovelBox': GUI.lightnovelBox.checkState(),
+                                           'wallpaperBox': GUI.wallpaperBox.checkState(),
+                                           'ebokBox': GUI.ebokBox.checkState(),
+                                           'invertDirectionBox': GUI.invertDirectionBox.checkState(),
+                                           'languageEdit': GUI.languageEdit.text(),
+                                           'rotateBox': GUI.rotateBox.checkState(),
+                                           'qualityBox': GUI.qualityBox.checkState(),
+                                           'vertical4PanelBox': GUI.vertical4PanelBox.checkState(),
+                                           'gammaBox': GUI.gammaBox.checkState(),
+                                           'autoLevelBox': GUI.autoLevelBox.checkState(),
+                                           'autocontrastBox': GUI.autocontrastBox.checkState(),
+                                           'croppingBox': GUI.croppingBox.checkState(),
+                                           'croppingPowerSlider': float(self.croppingPowerValue) * 100,
+                                           'preserveMarginBox': self.preserveMarginBox.value(),
+                                           'interPanelCropBox': GUI.interPanelCropBox.checkState(),
+                                           'upscaleBox': GUI.upscaleBox.checkState(),
+                                           'borderBox': GUI.borderBox.checkState(),
+                                           'webtoonBox': GUI.webtoonBox.checkState(),
+                                           'outputSplit': GUI.outputSplit.checkState(),
+                                           'colorBox': GUI.colorBox.checkState(),
+                                           'eraseRainbowBox': GUI.eraseRainbowBox.checkState(),
+                                           'disableProcessingBox': GUI.disableProcessingBox.checkState(),
+                                           'legacyExtractBox': GUI.legacyExtractBox.checkState(),
+                                           'pdfWidthBox': GUI.pdfWidthBox.checkState(),
+                                           'smartCoverCropBox': GUI.smartCoverCropBox.checkState(),
+                                           'coverFillBox': GUI.coverFillBox.checkState(),
+                                           'metadataTitleBox': GUI.metadataTitleBox.checkState(),
+                                           'keepComicInfoBox': GUI.keepComicInfoBox.checkState(),
+                                           'mozJpegBox': GUI.mozJpegBox.checkState(),
+                                           'forcePngRgbBox': GUI.forcePngRgbBox.checkState(),
+                                           'webpBox': GUI.webpBox.checkState(),
+                                           'pngLegacyBox': GUI.pngLegacyBox.checkState(),
+                                           'noQuantizeBox': GUI.noQuantizeBox.checkState(),
+                                           'jpegQualityBox': GUI.jpegQualityBox.checkState(),
+                                           'jpegQuality': GUI.jpegQualitySpinBox.value(),
+                                           'widthBox': GUI.widthBox.value(),
+                                           'heightBox': GUI.heightBox.value(),
+                                           'deleteBox': GUI.deleteBox.checkState(),
+                                           'tempDirBox': GUI.tempDirBox.checkState(),
+                                           'spreadShiftBox': GUI.spreadShiftBox.checkState(),
+                                           'onePageLandscapeBox': GUI.onePageLandscapeBox.checkState(),
+                                           'fileFusionBox': GUI.fileFusionBox.checkState(),
+                                           'defaultOutputFolderBox': GUI.defaultOutputFolderBox.checkState(),
+                                           'noRotateBox': GUI.noRotateBox.checkState(),
+                                           'rotateRightBox': GUI.rotateRightBox.checkState(),
+                                           'rotateFirstBox': GUI.rotateFirstBox.checkState(),
+                                           'maximizeStrips': GUI.maximizeStrips.checkState(),
+                                           'gammaSlider': float(self.gammaValue) * 100,
+                                           'chunkSizeCheckBox': GUI.chunkSizeCheckBox.checkState(),
+                                           'chunkSizeBox': GUI.chunkSizeBox.value()})
+        self.settings.sync()
+        self.tray.hide()
+
+    def handleMessage(self, message):
+        MW.raise_()
+        MW.activateWindow()
+        if type(message) is bytes:
+            message = message.decode('UTF-8')
+        if not self.conversionAlive and message != 'ARISE' and not GUI.jobList.findItems(message, Qt.MatchFlag.MatchExactly):
+            if self.needClean:
+                self.needClean = False
+                GUI.jobList.clear()
+            formats = ['.pdf']
+            if self.tar or self.sevenzip:
+                formats.extend(['.cb7', '.7z', '.cbz', '.zip', '.cbr', '.rar', '.epub'])
+            if os.path.isdir(message):
+                GUI.jobList.addItem(message)
+                GUI.jobList.scrollToBottom()
+            elif os.path.isfile(message):
+                extension = os.path.splitext(message)
+                if extension[1].lower() in formats:
+                    GUI.jobList.addItem(message)
+                    GUI.jobList.scrollToBottom()
+                else:
+                    self.addMessage('不支持的文件类型：' + message, 'error')
+
+    def dragAndDrop(self, e):
+        e.accept()
+
+    def dragAndDropAccepted(self, e):
+        for message in e.mimeData().urls():
+            message = unquote(message.toString().replace('file:///', ''))
+            if sys.platform.startswith('win'):
+                message = message.replace('/', '\\')
+            else:
+                message = '/' + message
+                if message[-1] == '/':
+                    message = message[:-1]
+            self.handleMessage(message)
+        # sorting may conflict with manual file fusion order
+        # GUI.jobList.sortItems()
+
+    def forceShutdown(self):
+        self.saveSettings(None)
+        sys.exit(0)
+
+    def detectKindleGen(self, startup=False):
+        if not sys.platform.startswith('win'):
+            try:
+                os.chmod('/usr/local/bin/kindlegen', 0o755)
+            except Exception:
+                pass
+        try:
+            versionCheck = subprocess_run(['kindlegen', '-locale', 'en'], stdout=PIPE, stderr=STDOUT, encoding='UTF-8', errors='ignore', check=True)
+            self.kindleGen = True
+            for line in versionCheck.stdout.splitlines():
+                if 'Amazon kindlegen' in line:
+                    versionCheck = line.split('V')[1].split(' ')[0]
+                    if Version(versionCheck) < Version('2.9'):
+                        self.addMessage('您的 <a href=\"https://www.amazon.com/b?node=23496309011\">KindleGen</a> 版本过旧！MOBI 转换可能失败。', 'warning')
+                    break
+        except (FileNotFoundError, CalledProcessError):
+            self.kindleGen = False
+            if startup:
+                self.display_kindlegen_missing()
+        except OSError as e:
+            self.kindleGen = False
+            if startup:
+                error = f"kindlegen：{e.strerror}\n\n 是否重新安装 Rosetta/Kindle Previewer/其他 Intel 应用？\n\n请发邮件给 Amazon，推动 Kindle Previewer 原生支持 Apple 芯片：amazon.com/kindle-help"
+                self.showDialog(error, 'error')
+
+    def __init__(self, kccapp, kccwindow):
+        global APP, MW, GUI
+        APP = kccapp
+        MW = kccwindow
+        GUI = self
+        self.setupUi(MW)
+        self.editor = KCCGUI_MetaEditor()
+        self.icons = Icons()
+        self.settings = QSettings('ciromattia', 'kcc10')
+        self.settingsVersion = self.settings.value('settingsVersion', '', type=str)
+        self.lastPath = self.settings.value('lastPath', '', type=str)
+        self.defaultOutputFolder = str(self.settings.value('defaultOutputFolder', '', type=str))
+        if not os.path.exists(self.defaultOutputFolder):
+            self.defaultOutputFolder = ''
+
+        self.expertMode = self.settings.value('expertMode', False, type=bool)
+        if not self.expertMode:
+            GUI.hide_expert_options()
+
+        # default is Kindle Paperwhite 12th Gen
+        self.lastDevice = self.settings.value('lastDevice', 3, type=int)
+
+        self.currentFormat = self.settings.value('currentFormat', 0, type=int)
+        self.startNumber = self.settings.value('startNumber', 0, type=int)
+        self.startNumber2 = self.settings.value('startNumber2', 0, type=int)
+        self.windowSize = self.settings.value('windowSize', '0x0', type=str)
+        default_options = {'gammaSlider': 0, 'croppingBox': 2, 'croppingPowerSlider': 100, 'rotateBox': 1, 'mangaBox': 2}
+        try:
+            self.options = self.settings.value('options', default_options)
+        except Exception:
+            self.options = default_options
+        self.worker = WorkerThread()
+        self.versionCheck = VersionThread(self.startNumber2)
+        self.progress = ProgressThread()
+        self.tray = SystemTrayIcon()
+        self.conversionAlive = False
+        self.needClean = True
+        self.kindleGen = False
+        self.gammaValue = 1.0
+        self.croppingPowerValue = 1.0
+        self.currentMode = 1
+        self.targetDirectory = ''
+        if sys.platform.startswith('win'):
+            # noinspection PyUnresolvedReferences
+            from psutil import BELOW_NORMAL_PRIORITY_CLASS
+            self.p = Process(os.getpid())
+            self.p.nice(BELOW_NORMAL_PRIORITY_CLASS)
+            self.p.ionice(1)
+        elif sys.platform.startswith('linux'):
+            APP.setStyle('fusion')
+            if self.windowSize == '0x0':
+                MW.resize(500, 500)
+        elif sys.platform.startswith('darwin'):
+            for element in ['editorButton', 'defaultOutputFolderButton', 'clearButton', 'fileButton', 'deviceBox',
+                            'convertButton', 'formatBox']:
+                getattr(GUI, element).setMinimumSize(QSize(0, 0))
+            GUI.gridLayout.setContentsMargins(-1, -1, -1, -1)
+            for element in ['gridLayout_2', 'gridLayout_3', 'gridLayout_4', 'gridLayout_6', 'horizontalLayout_2']:
+                getattr(GUI, element).setContentsMargins(-1, 0, -1, 0)
+            if self.windowSize == '0x0':
+                MW.resize(500, 500)
+
+        self.formats = {  # text, icon, data/option_format
+            "MOBI/AZW3": {'icon': 'MOBI', 'format': 'MOBI'},
+            "EPUB": {'icon': 'EPUB', 'format': 'EPUB'},
+            "CBZ": {'icon': 'CBZ', 'format': 'CBZ'},
+            "Folder of images": {'icon': 'FOLDER', 'format': 'FOLDER'},
+            "PDF": {'icon': 'EPUB', 'format': 'PDF'},
+            "PDF (200MB limit)": {'icon': 'EPUB', 'format': 'PDF-200MB'},
+            "KFX (Send to Kindle EPUB)": {'icon': 'KFX', 'format': 'KFX'},
+            "MOBI + EPUB": {'icon': 'MOBI', 'format': 'MOBI+EPUB'},
+            "EPUB (200MB limit)": {'icon': 'EPUB', 'format': 'EPUB-200MB'},
+            "MOBI + EPUB (200MB limit)": {'icon': 'MOBI', 'format': 'MOBI+EPUB-200MB'},
+        }
+
+
+        self.profiles = {
+            "Kindle Oasis 9/10": {'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0,
+                                 'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KO'},
+            "Kindle 8/10": {'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0,
+                       'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K810'},
+            "Kindle Oasis 8": {'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0,
+                             'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KPW34'},
+            "Kindle Voyage": {'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0,
+                              'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KV'},
+            "Kindle 1860x1920": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS1860',
+            },
+            "Kindle 1920x1920": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS1920',
+            },
+            "Kindle 1240x1860": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS1240',
+            },
+            "Kindle 1324x1986": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS1324',
+            },
+            "Kindle Scribe 1/2": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS',
+            },
+            "Kindle Scribe 3": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 3, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS3',
+            },
+            "Kindle Scribe Colorsoft": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 3, 'DefaultUpscale': False, 'ForceColor': True, 'Label': 'KSCS',
+            },
+            "Kindle 11": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': True, 'ForceColor': False, 'Label': 'K11',
+            },
+            "Kindle Paperwhite 11": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KPW5',
+            },
+            "Kindle Paperwhite 12": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KPW6',
+            },
+            "Kindle Colorsoft": {
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': True, 'ForceColor': True, 'Label': 'KCS',
+            },
+            "Kindle Paperwhite 7/10": {'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0,
+                              'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KPW34'},
+            "Kindle Paperwhite 5/6": {'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0,
+                              'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KPW'},
+            "Kindle 4/5/7": {'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0,
+                       'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K57'},
+            "Kindle DX": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 2,
+                              'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KDX'},
+            "Kobo Mini/Touch": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                                'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KoMT'},
+            "Kobo Glo": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                         'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KoG'},
+            "Kobo Glo HD": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                            'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KoGHD'},
+            "Kobo Aura": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                          'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KoA'},
+            "Kobo Aura HD": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                             'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KoAHD'},
+            "Kobo Aura H2O": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                              'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KoAH2O'},
+            "Kobo Aura ONE": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                              'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KoAO'},
+            "Kobo Clara HD": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                              'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KoC'},
+            "Kobo Libra H2O": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                               'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KoL'},
+            "Kobo Forma": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
+                           'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KoF'},
+            "Kindle 1": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 0,
+                         'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K1'},
+            "Kindle 2": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 0,
+                         'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K2'},
+            "Kindle Keyboard": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 0,
+                                'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K34'},
+            "Kindle Touch": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 0,
+                             'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K34'},
+            "Kobo Nia": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1, 'DefaultUpscale': True, 'ForceColor': False,
+                         'Label': 'KoN'},
+            "Kobo Clara 2E": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1, 'DefaultUpscale': True, 'ForceColor': False,
+                              'Label': 'KoC'},
+            "Kobo Clara Colour": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1, 'DefaultUpscale': True, 'ForceColor': True,
+                              'Label': 'KoCC'},
+            "Kobo Libra 2": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1, 'DefaultUpscale': True, 'ForceColor': False,
+                             'Label': 'KoL'},
+            "Kobo Libra Colour": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1, 'DefaultUpscale': True, 'ForceColor': True,
+                             'Label': 'KoLC'},
+            "Kobo Sage": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1, 'DefaultUpscale': True, 'ForceColor': False,
+                          'Label': 'KoS'},
+            "Kobo Elipsa": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1, 'DefaultUpscale': True, 'ForceColor': False,
+                            'Label': 'KoE'},
+            "reMarkable 1": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 3, 'DefaultUpscale': True, 'ForceColor': False,
+                             'Label': 'Rmk1'},
+            "reMarkable 2": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 3, 'DefaultUpscale': True, 'ForceColor': False,
+                             'Label': 'Rmk2'},
+            "reMarkable Paper Pro": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 3, 'DefaultUpscale': True, 'ForceColor': True,
+                             'Label': 'RmkPP'},
+            "reMarkable Paper Pro Move": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 3, 'DefaultUpscale': True, 'ForceColor': True,
+                             'Label': 'RmkPPMove'},
+            "Other": {'PVOptions': False, 'ForceExpert': True, 'DefaultFormat': 1, 'DefaultUpscale': False, 'ForceColor': False,
+                      'Label': 'OTHER'},
+        }
+        profilesGUI = [
+            "Kindle Scribe Colorsoft",
+            "Kindle Scribe 3",
+            "Kindle Colorsoft",
+            "Kindle Paperwhite 12",
+            "Kindle Scribe 1/2",
+            "Kindle Paperwhite 11",
+            "Kindle 11",
+            "Kindle Oasis 9/10",
+            "Separator",
+            "Kobo Clara 2E",
+            "Kobo Clara Colour",
+            "Kobo Sage",
+            "Kobo Libra 2",
+            "Kobo Libra Colour",
+            "Kobo Elipsa",
+            "Kobo Nia",
+            "Separator",
+            "reMarkable 1",
+            "reMarkable 2",
+            "reMarkable Paper Pro",
+            "reMarkable Paper Pro Move",
+            "Separator",
+            "Other",
+            "Separator",
+            "Kindle 1324x1986",
+            "Kindle 1920x1920",
+            "Kindle 1860x1920",
+            "Kindle 1240x1860",
+            "Kindle 8/10",
+            "Kindle Oasis 8",
+            "Kindle Paperwhite 7/10",
+            "Kindle Voyage",
+            "Kindle Paperwhite 5/6",
+            "Kindle 4/5/7",
+            "Kindle Touch",
+            "Kindle Keyboard",
+            "Kindle DX",
+            "Kindle 2",
+            "Kindle 1",
+            "Separator",
+            "Kobo Aura",
+            "Kobo Aura ONE",
+            "Kobo Aura H2O",
+            "Kobo Aura HD",
+            "Kobo Clara HD",
+            "Kobo Forma",
+            "Kobo Glo HD",
+            "Kobo Glo",
+            "Kobo Libra H2O",
+            "Kobo Mini/Touch",
+        ]
+
+        link_dict = {
+            '说明文档': "https://github.com/ciromattia/kcc?tab=readme-ov-file#kcc",
+            '常见问题': "https://github.com/ciromattia/kcc/blob/master/README.md#faq",
+            'Wiki': "https://github.com/ciromattia/kcc/wiki",
+            'YouTube': "https://www.youtube.com/@eink-dude",
+            '视频教程': "https://youtu.be/QQ6zJcMF2Iw?si=80rfm6DU6OUJdFqa",
+            '联系作者': "https://github.com/ciromattia/kcc?tab=readme-ov-file#commissions",
+            '捐赠': "https://github.com/ciromattia/kcc/blob/master/README.md#issues--new-features--donations",
+            '论坛': "http://www.mobileread.com/forums/showthread.php?t=207461",
+            'Discord': "https://discord.com/invite/qj7wpnUHav",
+        }
+
+        link_html_list = [f'<a href="{v}">{k}</a>' for k, v in link_dict.items()]
+        statusBarLabel = QLabel(f'<b>{" - ".join(link_html_list)}</b>')
+        statusBarLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        statusBarLabel.setOpenExternalLinks(True)
+        GUI.statusBar.addPermanentWidget(statusBarLabel, 1)
+
+        self.addMessage('<b>提示：</b>把鼠标悬停在选项/按钮上可查看说明。复选框支持半选和全选。', 'info')
+        self.addMessage('<b>提示：</b>可以把图片文件夹或漫画文件/压缩包直接拖入本窗口进行转换。', 'info')
+        self.addMessage("<b>提示：</b>Calibre 可能会添加白边！建议直接用 USB 把文件拖入设备的 documents 文件夹。", 'info')
+        self.addMessage("<b>提示：</b>可用右上角按钮切换简易/专家模式。", 'info')
+        if self.startNumber < 5:
+            self.addMessage('您是 <b>KCC</b> 的新用户，请先看看这几条 <a href=\"https://github.com/ciromattia/kcc/wiki/Important-tips\">重要提示</a>。',
+                            'info')
+        
+        self.tar = TAR in available_archive_tools()
+        self.sevenzip = SEVENZIP in available_archive_tools()
+        if not any([self.tar, self.sevenzip]):
+            self.addMessage('<a href=\"https://github.com/ciromattia/kcc#7-zip\">安装 7z（链接）</a> 以启用 CBZ/CBR/ZIP 等格式的处理。', 'warning')
+        self.detectKindleGen(True)
+
+        APP.messageFromOtherInstance.connect(self.handleMessage)
+        GUI.defaultOutputFolderButton.clicked.connect(self.selectDefaultOutputFolder)
+        GUI.clearButton.clicked.connect(self.clearJobs)
+        GUI.fileButton.clicked.connect(self.selectFile)
+        GUI.directoryButton.clicked.connect(self.selectDir)
+        GUI.editorButton.clicked.connect(self.selectFileMetaEditor)
+        GUI.kofiButton.clicked.connect(self.openKofi)
+        GUI.humbleButton.clicked.connect(self.openHumble)
+        GUI.expertButton.clicked.connect(self.toggleExpert)
+        GUI.convertButton.clicked.connect(self.convertStart)
+        GUI.labelSpreadsButton.clicked.connect(self.labelSpreadsStart)
+        GUI.gammaSlider.valueChanged.connect(self.changeGamma)
+        GUI.gammaBox.stateChanged.connect(self.togglegammaBox)
+        GUI.croppingBox.stateChanged.connect(self.togglecroppingBox)
+        GUI.croppingPowerSlider.valueChanged.connect(self.changeCroppingPower)
+        GUI.jpegQualityBox.stateChanged.connect(self.togglejpegqualityBox)
+        GUI.webtoonBox.stateChanged.connect(self.togglewebtoonBox)
+        GUI.qualityBox.stateChanged.connect(self.togglequalityBox)
+        GUI.mozJpegBox.stateChanged.connect(self.toggleImageFormatBox)
+        GUI.wallpaperBox.stateChanged.connect(self.toggleWallpaperBox)
+        GUI.chunkSizeCheckBox.stateChanged.connect(self.togglechunkSizeCheckBox)
+        GUI.deviceBox.activated.connect(self.changeDevice)
+        GUI.formatBox.activated.connect(self.changeFormat)
+        GUI.titleEdit.textChanged.connect(self.toggletitleEdit)
+        GUI.fileFusionBox.stateChanged.connect(self.togglefileFusionBox)
+        GUI.metadataTitleBox.stateChanged.connect(self.togglemetadataTitleBox)
+        GUI.jobList.itemDoubleClicked.connect(self.editSourceMetadata)
+        MW.progressBarTick.connect(self.updateProgressbar)
+        MW.modeConvert.connect(self.modeConvert)
+        MW.addMessage.connect(self.addMessage)
+        MW.showDialog.connect(self.showDialog)
+        MW.hideProgressBar.connect(self.hideProgressBar)
+        MW.forceShutdown.connect(self.forceShutdown)
+        MW.closeEvent = self.saveSettings
+        MW.addTrayMessage.connect(self.tray.addTrayMessage)
+
+        GUI.centralWidget.setAcceptDrops(True)
+        GUI.centralWidget.dragEnterEvent = self.dragAndDrop
+        GUI.centralWidget.dropEvent = self.dragAndDropAccepted
+
+        self.modeChange(1)
+        # 中文界面文字与内部英文键值分离：显示中文，userData 保存英文键，
+        # 逻辑查找一律走 currentData()，避免界面翻译影响 profiles/formats 查表。
+        zhDeviceNames = {
+            "Kindle Scribe Colorsoft": "Kindle Scribe Colorsoft（彩色）",
+            "Kindle Scribe 3": "Kindle Scribe 3",
+            "Kindle Colorsoft": "Kindle Colorsoft（彩色）",
+            "Kindle Paperwhite 12": "Kindle Paperwhite 12",
+            "Kindle Scribe 1/2": "Kindle Scribe 1/2",
+            "Kindle Paperwhite 11": "Kindle Paperwhite 11",
+            "Kindle 11": "Kindle 11",
+            "Kindle Oasis 9/10": "Kindle Oasis 9/10",
+            "Kobo Clara 2E": "Kobo Clara 2E",
+            "Kobo Clara Colour": "Kobo Clara Colour（彩色）",
+            "Kobo Sage": "Kobo Sage",
+            "Kobo Libra 2": "Kobo Libra 2",
+            "Kobo Libra Colour": "Kobo Libra Colour（彩色）",
+            "Kobo Elipsa": "Kobo Elipsa",
+            "Kobo Nia": "Kobo Nia",
+            "reMarkable 1": "reMarkable 1",
+            "reMarkable 2": "reMarkable 2",
+            "reMarkable Paper Pro": "reMarkable Paper Pro",
+            "reMarkable Paper Pro Move": "reMarkable Paper Pro Move",
+            "Other": "其他设备（自定义分辨率）",
+            "Kindle 1324x1986": "Kindle 1324x1986",
+            "Kindle 1920x1920": "Kindle 1920x1920",
+            "Kindle 1860x1920": "Kindle 1860x1920",
+            "Kindle 1240x1860": "Kindle 1240x1860",
+            "Kindle 8/10": "Kindle 8/10",
+            "Kindle Oasis 8": "Kindle Oasis 8",
+            "Kindle Paperwhite 7/10": "Kindle Paperwhite 7/10",
+            "Kindle Voyage": "Kindle Voyage",
+            "Kindle Paperwhite 5/6": "Kindle Paperwhite 5/6",
+            "Kindle 4/5/7": "Kindle 4/5/7",
+            "Kindle Touch": "Kindle Touch",
+            "Kindle Keyboard": "Kindle Keyboard",
+            "Kindle DX": "Kindle DX",
+            "Kindle 2": "Kindle 2",
+            "Kindle 1": "Kindle 1",
+            "Kobo Aura": "Kobo Aura",
+            "Kobo Aura ONE": "Kobo Aura ONE",
+            "Kobo Aura H2O": "Kobo Aura H2O",
+            "Kobo Aura HD": "Kobo Aura HD",
+            "Kobo Clara HD": "Kobo Clara HD",
+            "Kobo Forma": "Kobo Forma",
+            "Kobo Glo HD": "Kobo Glo HD",
+            "Kobo Glo": "Kobo Glo",
+            "Kobo Libra H2O": "Kobo Libra H2O",
+            "Kobo Mini/Touch": "Kobo Mini/Touch",
+        }
+        zhFormatNames = {
+            "MOBI/AZW3": "MOBI/AZW3",
+            "EPUB": "EPUB",
+            "CBZ": "CBZ",
+            "Folder of images": "图片文件夹",
+            "PDF": "PDF",
+            "PDF (200MB limit)": "PDF（限 200MB）",
+            "KFX (Send to Kindle EPUB)": "KFX（Send to Kindle 用 EPUB）",
+            "MOBI + EPUB": "MOBI + EPUB",
+            "EPUB (200MB limit)": "EPUB（限 200MB）",
+            "MOBI + EPUB (200MB limit)": "MOBI + EPUB（限 200MB）",
+        }
+        for profile in profilesGUI:
+            if profile == "Other":
+                GUI.deviceBox.addItem(self.icons.deviceOther, zhDeviceNames[profile], profile)
+            elif profile == "Separator":
+                GUI.deviceBox.insertSeparator(GUI.deviceBox.count() + 1)
+            elif 'reM' in profile:
+                GUI.deviceBox.addItem(self.icons.deviceRmk, zhDeviceNames[profile], profile)
+            elif 'Ko' in profile:
+                GUI.deviceBox.addItem(self.icons.deviceKobo, zhDeviceNames[profile], profile)
+            else:
+                GUI.deviceBox.addItem(self.icons.deviceKindle, zhDeviceNames[profile], profile)
+        for f in self.formats:
+            GUI.formatBox.addItem(getattr(self.icons, self.formats[f]['icon'] + 'Format'), zhFormatNames[f], f)
+        if self.lastDevice > GUI.deviceBox.count():
+            self.lastDevice = 0
+        if profilesGUI[self.lastDevice] == "Separator":
+            self.lastDevice = 0
+        if self.currentFormat > GUI.formatBox.count():
+            self.currentFormat = 0
+        GUI.deviceBox.setCurrentIndex(self.lastDevice)
+        self.changeDevice()
+        if self.currentFormat != self.profiles[str(GUI.deviceBox.currentData())]['DefaultFormat']:
+            self.changeFormat(self.currentFormat)
+        for option in self.options:
+            if str(option) == "widthBox":
+                GUI.widthBox.setValue(int(self.options[option]))
+            elif str(option) == "heightBox":
+                GUI.heightBox.setValue(int(self.options[option]))
+            elif str(option) == "languageEdit":
+                GUI.languageEdit.setText(str(self.options[option]))
+            elif str(option) == "gammaSlider":
+                if GUI.gammaSlider.isEnabled():
+                    GUI.gammaSlider.setValue(int(self.options[option]))
+                    self.changeGamma(int(self.options[option]))
+            elif str(option) == "croppingPowerSlider":
+                if GUI.croppingPowerSlider.isEnabled():
+                    GUI.croppingPowerSlider.setValue(int(self.options[option]))
+                    self.changeCroppingPower(int(self.options[option]))
+                    GUI.preserveMarginBox.setValue(self.options.get('preserveMarginBox', 0))
+            elif str(option) == "jpegQuality":
+                GUI.jpegQualitySpinBox.setValue(int(self.options[option]))
+            elif str(option) == "chunkSizeBox":
+                GUI.chunkSizeBox.setValue(int(self.options[option]))
+            else:
+                try:
+                    if getattr(GUI, option).isEnabled():
+                        getattr(GUI, option).setCheckState(Qt.CheckState(self.options[option]))
+                except AttributeError:
+                    pass
+        self.worker.sync()
+        self.versionCheck.start()
+        self.tray.show()
+
+        # Cleanup unfinished conversion
+        for root, dirs, _ in walkLevel(gettempdir(), 0):
+            for tempdir in dirs:
+                if tempdir.startswith('KCC-'):
+                    rmtree(os.path.join(root, tempdir), True)
+
+        if self.windowSize != '0x0':
+            x, y = self.windowSize.split('x')
+            MW.resize(int(x), int(y))
+        MW.setWindowTitle("Kindle 漫画转换器 " + __version__)
+        MW.show()
+        MW.raise_()
+
+
+class KCCGUI_MetaEditor(KCC_ui_editor.Ui_editorDialog):
+    def _buildBulkFieldToolTip(self, fieldLabel, valuesByFile):
+        note = '<p><em>注意：修改此字段会覆盖所有选中文件中的对应值。</em></p>'
+
+        if len(valuesByFile) <= 20:
+            rows = ''.join(
+                '<tr>'
+                f'<td style="padding:2px 6px; white-space:nowrap;">{escape(os.path.basename(f))}</td>'
+                f'<td style="padding:2px 6px;">{escape(v)}</td>'
+                '</tr>'
+                for f, v in valuesByFile
+            )
+
+            table = (
+                '<table border=\"1\" cellspacing=\"0\" cellpadding=\"0\"><tr><th style=\"padding:2px 6px; text-align:left;\">文件</th><th style=\"padding:2px 6px; text-align:left;\">值</th></tr>'
+                f'{rows}'
+                '</table>'
+            )
+        else:
+            counts = {}
+            for _, v in valuesByFile:
+                counts[v] = counts.get(v, 0) + 1
+
+            rows = ''.join(
+                '<tr>'
+                f'<td style="padding:2px 6px;">{escape(v)}</td>'
+                f'<td style="padding:2px 6px; text-align:right;">{c}</td>'
+                '</tr>'
+                for v, c in sorted(counts.items(), key=lambda t: (-t[1], t[0]))
+            )
+
+            table = (
+                '<table border=\"1\" cellspacing=\"0\" cellpadding=\"0\"><tr><th style=\"padding:2px 6px; text-align:left;\">值</th><th style=\"padding:2px 6px; text-align:right;\">数量</th></tr>'
+                f'{rows}'
+                '</table>'
+            )
+
+        tooltipHTML = f'\
+            <b>{escape(fieldLabel)}</b>\
+            {note}\
+            {table}\
+        '
+
+        return tooltipHTML
+
+    def loadData(self, files):
+        self.files = files if isinstance(files, list) else [files]
+        self.bulkMode = len(self.files) > 1
+        
+        # Sort files by name for consistent volume assignment
+        self.files.sort()
+        
+        # Unified CBR check for all files (both single and bulk mode)
+        for file in self.files:
+            parser = metadata.MetadataParser(file)
+            if parser.format in ['RAR', 'RAR5']:
+                self.editorWidget.setEnabled(False)
+                self.okButton.setEnabled(False)
+                self.statusLabel.setText('所选内容中的 CBR 文件为只读。')
+                return
+        
+        if self.bulkMode:
+            firstFile = self.files[0]
+            self.parser = metadata.MetadataParser(firstFile)
+            self.editorWidget.setEnabled(True)
+            self.okButton.setEnabled(True)
+            self.statusLabel.setText(f'正在编辑 {len(self.files)} 个文件。')
+
+            # Show bulk volume checkbox
+            self.bulkVolumeCheck.setVisible(True)
+            self.bulkVolumeCheck.setChecked(False)
+
+            for field in (self.volumeLine, self.numberLine, self.titleLine):
+                field.setEnabled(False)
+                field.setText('')
+                field.setPlaceholderText('（多个文件）')
+                field.setToolTip('')
+
+            # Load metadata for all files and show common values, or “(multiple values)” + tooltip.
+            parsed = []
+            for file in self.files:
+                parsed.append((file, metadata.MetadataParser(file)))
+
+            field_specs = [
+                (self.seriesLine, '系列', lambda p: (p.data.get('Series', '') or '')),
+                (self.writerLine, '编剧', lambda p: ', '.join(p.data.get('Writers', []) or [])),
+                (self.pencillerLine, '作画', lambda p: ', '.join(p.data.get('Pencillers', []) or [])),
+                (self.inkerLine, '墨线', lambda p: ', '.join(p.data.get('Inkers', []) or [])),
+                (self.coloristLine, '上色', lambda p: ', '.join(p.data.get('Colorists', []) or [])),
+            ]
+
+            for line, label, extractor in field_specs:
+                line.setEnabled(True)
+                valuesByFile = [(f, extractor(p)) for f, p in parsed]
+                uniqueValues = {v for _, v in valuesByFile}
+
+                if len(uniqueValues) == 1:
+                    common_value = valuesByFile[0][1] if valuesByFile else ''
+                    line.setPlaceholderText('')
+                    line.setToolTip('')
+                    line.setText(common_value)
+                else:
+                    line.setText('')
+                    line.setPlaceholderText('（多个值）')
+                    line.setToolTip(self._buildBulkFieldToolTip(label, valuesByFile))
+        else:
+            file = self.files[0]
+            self.parser = metadata.MetadataParser(file)
+            
+            # Hide bulk volume checkbox in single file mode
+            self.bulkVolumeCheck.setVisible(False)
+            
+            for field in (self.volumeLine, self.numberLine, self.titleLine, self.seriesLine,
+                          self.writerLine, self.pencillerLine, self.inkerLine, self.coloristLine):
+                field.setEnabled(True)
+                field.setPlaceholderText('')
+            
+            self.editorWidget.setEnabled(True)
+            self.okButton.setEnabled(True)
+            self.statusLabel.setText('多个作者请用逗号分隔。')
+            
+            for field in (self.seriesLine, self.volumeLine, self.numberLine, self.titleLine):
+                field.setText(self.parser.data[field.objectName().capitalize()[:-4]])
+            for field in (self.writerLine, self.pencillerLine, self.inkerLine, self.coloristLine):
+                field.setText(', '.join(self.parser.data[field.objectName().capitalize()[:-4] + 's']))
+            for field in (self.seriesLine, self.titleLine):
+                if field.text() == '':
+                    path = Path(file)
+                    if file.endswith('.xml'):
+                        field.setText(path.parent.name)
+                    else:
+                        field.setText(path.stem)
+
+    def saveData(self):
+        if self.bulkMode:
+            bulkData = {}
+            if self.cleanData(self.seriesLine.text()):
+                bulkData['Series'] = self.cleanData(self.seriesLine.text())
+            
+            for field in (self.writerLine, self.pencillerLine, self.inkerLine, self.coloristLine):
+                fieldName = field.objectName().capitalize()[:-4] + 's'
+                values = self.cleanData(field.text()).split(',')
+                tmpData = [self.cleanData(v) for v in values if self.cleanData(v)]
+                if tmpData:
+                    bulkData[fieldName] = tmpData
+            # Handle bulk volume editing
+            volumes = None
+            if self.bulkVolumeCheck.isChecked():
+                volumeText = self.volumeLine.text()
+                volumes, error = self.parseVolumeInput(volumeText, len(self.files))
+                if error:
+                    self.statusLabel.setText(error)
+                    return
+
+            if not bulkData and volumes is None:
+                self.statusLabel.setText('没有需要应用的更改。')
+                return
+
+            errors = []
+            total = len(self.files)
+            self.okButton.setEnabled(False)
+            self.cancelButton.setEnabled(False)
+
+            for i, file in enumerate(self.files, 1):
+                self.statusLabel.setText(f'正在处理 {i}/{total}：{os.path.basename(file)}')
+                QApplication.processEvents()
+
+                try:
+                    parser = metadata.MetadataParser(file)
+                    if parser.format in ['RAR', 'RAR5']:
+                        errors.append(f'{os.path.basename(file)}：CBR 为只读')
+                        continue
+                    for key, value in bulkData.items():
+                        parser.data[key] = value
+                    # Set volume if bulk volume editing is enabled
+                    if volumes is not None:
+                        parser.data['Volume'] = str(volumes[i - 1])
+                    parser.saveXML()
+                except Exception as err:
+                    errors.append(f'{os.path.basename(file)}: {str(err)}')
+
+            self.okButton.setEnabled(True)
+            self.cancelButton.setEnabled(True)
+
+            if errors:
+                GUI.showDialog("部分文件保存失败：\n\n" + "\n".join(errors[:10]) +
+                              (f"\n……另有 {len(errors) - 10} 个" if len(errors) > 10 else ""), 'error')
+                self.statusLabel.setText('发生错误。')
+            else:
+                self.statusLabel.setText(f'已成功更新 {total} 个文件。')
+                self.ui.close()
+        else:
+            for field in (self.volumeLine, self.numberLine):
+                if field.text().isnumeric() or self.cleanData(field.text()) == '':
+                    self.parser.data[field.objectName().capitalize()[:-4]] = self.cleanData(field.text())
+                else:
+                    self.statusLabel.setText(field.objectName().capitalize()[:-4] + ' 字段必须是数字。')
+                    break
+            else:
+                for field in (self.seriesLine, self.titleLine):
+                    self.parser.data[field.objectName().capitalize()[:-4]] = self.cleanData(field.text())
+                for field in (self.writerLine, self.pencillerLine, self.inkerLine, self.coloristLine):
+                    values = self.cleanData(field.text()).split(',')
+                    tmpData = []
+                    for value in values:
+                        if self.cleanData(value) != '':
+                            tmpData.append(self.cleanData(value))
+                    self.parser.data[field.objectName().capitalize()[:-4] + 's'] = tmpData
+                try:
+                    self.parser.saveXML()
+                except Exception as err:
+                    _, _, traceback = sys.exc_info()
+                    GUI.showDialog("保存元数据失败！\n\n%s\n\n堆栈跟踪：\n%s"
+                                   % (str(err), sanitizeTrace(traceback)), 'error')
+                self.ui.close()
+
+    def cleanData(self, s):
+        return escape(s.strip())
+
+    def parseVolumeInput(self, text, fileCount):
+        text = text.strip()
+        if not text:
+            return None, None
+        
+        volumes = []
+        
+        # Check if it's a range (e.g., "5-10")
+        if '-' in text and ',' not in text:
+            parts = text.split('-')
+            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+                return None, '范围格式无效（请使用 起始-结束）'
+            try:
+                start = int(parts[0].strip())
+                end = int(parts[1].strip())
+                if start < 0 or end < 0:
+                    return None, '卷号必须为正数'
+                if start > end:
+                    return None, '范围无效：起始值大于结束值'
+                volumes = list(range(start, end + 1))
+            except ValueError:
+                return None, '范围格式无效'
+        # Check if it's a comma-separated list (e.g., "1,3,5")
+        elif ',' in text:
+            try:
+                volumes = [int(v.strip()) for v in text.split(',') if v.strip()]
+                if any(v < 0 for v in volumes):
+                    return None, '卷号必须为正数'
+            except ValueError:
+                return None, '列表格式无效'
+        # Single number - generate sequence starting from that number
+        else:
+            try:
+                start = int(text)
+                if start < 0:
+                    return None, '卷号必须为正数'
+                volumes = list(range(start, start + fileCount))
+            except ValueError:
+                return None, '数字无效'
+        
+        # Validate count
+        if not volumes:
+            return None, '未解析出有效的卷号'
+        if len(volumes) != fileCount:
+            return None, f'卷号数量（{len(volumes)}）与文件数量（{fileCount}）不一致'
+        
+        return volumes, None
+    
+    def toggleBulkVolume(self, checked):
+        self.volumeLine.setEnabled(checked)
+        if checked:
+            self.volumeLine.setText('')
+            self.volumeLine.setPlaceholderText('例如：5 或 1-10 或 1,3,5')
+        else:
+            self.volumeLine.setText('')
+            self.volumeLine.setPlaceholderText('（多个文件）')
+
+    def __init__(self):
+        self.ui = QDialog()
+        self.parser = None
+        self.files = []
+        self.bulkMode = False
+        self.setupUi(self.ui)
+        self.ui.setWindowFlags(self.ui.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        
+        self.bulkVolumeCheck.stateChanged.connect(self.toggleBulkVolume)
+        
+        self.okButton.clicked.connect(self.saveData)
+        self.cancelButton.clicked.connect(self.ui.close)
+        if sys.platform.startswith('linux'):
+            self.ui.resize(450, 260)
+            self.ui.setMinimumSize(QSize(450, 260))
+        elif sys.platform.startswith('darwin'):
+            self.ui.resize(450, 310)
+            self.ui.setMinimumSize(QSize(450, 310))

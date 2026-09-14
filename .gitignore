@@ -1,0 +1,27 @@
+*.pyc
+__pycache__/
+Pipfile
+Pipfile.lock
+setup.bat
+other/windows/kindlegen.exe
+dist/
+build/
+KindleComicConverter*.egg-info/
+.idea/
+.vscode/
+win7
+osx10.11
+/venv/
+/kindlegen*
+/kcc.bat
+.DS_Store
+# 构建产物（本地打包，不入库）
+KCC_11.2.0_zh.spec
+SHA256SUMS.txt
+
+# 测试与审计产物（可重新生成，不入库）
+testdata/
+.cache/
+
+# 上游 CI 配置本地保留但不入库（本仓库不启用 CI）
+.github/workflows/
