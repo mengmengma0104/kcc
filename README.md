@@ -1,4 +1,4 @@
-> 🌐 **简体中文（默认）** | [English · 上游原文](README_upstream.md) | [上游文档中文翻译（AI 生成）](README_upstream_zh.md) | [上游分叉镜像](https://github.com/mengmengma0104/kcc)
+> 🌐 **简体中文（默认）** | [English · 上游原文](README_upstream.md) | [上游文档中文翻译（AI 生成）](README_upstream_zh.md) | [下载 Windows exe（kcc-zh-cn Releases）](https://github.com/mengmengma0104/kcc-zh-cn/releases/latest)
 
 [![版本](https://img.shields.io/github/v/release/mengmengma0104/kcc-zh-cn?label=%E7%89%88%E6%9C%AC&color=blue)](https://github.com/mengmengma0104/kcc-zh-cn/releases/latest)
 [![下载量](https://img.shields.io/github/downloads/mengmengma0104/kcc-zh-cn/total?label=%E4%B8%8B%E8%BD%BD&color=success)](https://github.com/mengmengma0104/kcc-zh-cn/releases/latest)
