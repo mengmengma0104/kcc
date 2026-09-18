@@ -32,7 +32,6 @@ import sys
 from urllib.parse import unquote
 from time import sleep
 from shutil import move, rmtree
-from subprocess import STDOUT, PIPE, CalledProcessError
 
 import requests
 from xml.sax.saxutils import escape
@@ -45,9 +44,9 @@ from PIL.Image import Dither
 
 from .KCC_spread_label import LabelSpreadsDialog
 
-from .shared import HTMLStripper, sanitizeTrace, walkLevel, subprocess_run
+from .shared import HTMLStripper, sanitizeTrace, walkLevel
 from .comicarchive import SEVENZIP, TAR, available_archive_tools
-from .comic2ebook import OS_SORT_KEY, flattenTree, getWorkFolder, removeNonImages, sanitizeTree
+from .comic2ebook import OS_SORT_KEY, flattenTree, getWorkFolder, removeNonImages, sanitizeTree, detectKindleGen
 from . import __version__
 from . import comic2ebook
 from . import metadata
@@ -418,6 +417,7 @@ class WorkerThread(QThread):
             if GUI.jobList.item(i).icon().isNull():
                 currentJobs.append(str(GUI.jobList.item(i).text()))
         GUI.jobList.clear()
+        fusion_cover_path = None
         if options.filefusion:
             bookDir = []
             MW.addMessage.emit('正在尝试合并文件', 'info', False)
@@ -429,7 +429,8 @@ class WorkerThread(QThread):
                 if options.output is None:
                     options.output = fusion_source_parent
                 currentJobs.clear()
-                currentJobs.append(comic2ebook.makeFusion(bookDir))
+                job, fusion_cover_path = comic2ebook.makeFusion(bookDir)
+                currentJobs.append(job)
                 MW.addMessage.emit('已生成合并文件：' + currentJobs[0], 'info', False)
             except Exception as e:
                 print('合并失败。' + str(e))
@@ -463,7 +464,7 @@ class WorkerThread(QThread):
             jobargv.append(job)
             try:
                 comic2ebook.options = comic2ebook.checkOptions(copy(options))
-                outputPath = comic2ebook.makeBook(job, self, job_progress_number)
+                outputPath = comic2ebook.makeBook(job, fusion_cover_path, self, job_progress_number)
                 MW.hideProgressBar.emit()
             except UserWarning as warn:
                 if not self.conversionAlive:
@@ -1247,8 +1248,8 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
                 self.needClean = True
                 return
             if 'MOBI' in GUI.formats[str(GUI.formatBox.currentData())]['format'] and not self.kindleGen:
-                self.detectKindleGen()
-                if not self.kindleGen:
+                if not detectKindleGen(GUI):
+                    self.progress.stop()
                     GUI.jobList.clear()
                     self.display_kindlegen_missing()
                     self.needClean = True
@@ -1376,31 +1377,6 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
         self.saveSettings(None)
         sys.exit(0)
 
-    def detectKindleGen(self, startup=False):
-        if not sys.platform.startswith('win'):
-            try:
-                os.chmod('/usr/local/bin/kindlegen', 0o755)
-            except Exception:
-                pass
-        try:
-            versionCheck = subprocess_run(['kindlegen', '-locale', 'en'], stdout=PIPE, stderr=STDOUT, encoding='UTF-8', errors='ignore', check=True)
-            self.kindleGen = True
-            for line in versionCheck.stdout.splitlines():
-                if 'Amazon kindlegen' in line:
-                    versionCheck = line.split('V')[1].split(' ')[0]
-                    if Version(versionCheck) < Version('2.9'):
-                        self.addMessage('您的 <a href=\"https://www.amazon.com/b?node=23496309011\">KindleGen</a> 版本过旧！MOBI 转换可能失败。', 'warning')
-                    break
-        except (FileNotFoundError, CalledProcessError):
-            self.kindleGen = False
-            if startup:
-                self.display_kindlegen_missing()
-        except OSError as e:
-            self.kindleGen = False
-            if startup:
-                error = f"kindlegen：{e.strerror}\n\n 是否重新安装 Rosetta/Kindle Previewer/其他 Intel 应用？\n\n请发邮件给 Amazon，推动 Kindle Previewer 原生支持 Apple 芯片：amazon.com/kindle-help"
-                self.showDialog(error, 'error')
-
     def __init__(self, kccapp, kccwindow):
         global APP, MW, GUI
         APP = kccapp
@@ -1419,6 +1395,8 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
         self.expertMode = self.settings.value('expertMode', False, type=bool)
         if not self.expertMode:
             GUI.hide_expert_options()
+        else:
+            GUI.easyLabel.hide()
 
         # default is Kindle Paperwhite 12th Gen
         self.lastDevice = self.settings.value('lastDevice', 3, type=int)
@@ -1433,8 +1411,11 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
         except Exception:
             self.options = default_options
         self.worker = WorkerThread()
+        self.worker.setObjectName('worker')
         self.versionCheck = VersionThread(self.startNumber2)
+        self.versionCheck.setObjectName('version')
         self.progress = ProgressThread()
+        self.progress.setObjectName('progress')
         self.tray = SystemTrayIcon()
         self.conversionAlive = False
         self.needClean = True
@@ -1663,7 +1644,6 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
         self.sevenzip = SEVENZIP in available_archive_tools()
         if not any([self.tar, self.sevenzip]):
             self.addMessage('<a href=\"https://github.com/ciromattia/kcc#7-zip\">安装 7z（链接）</a> 以启用 CBZ/CBR/ZIP 等格式的处理。', 'warning')
-        self.detectKindleGen(True)
 
         APP.messageFromOtherInstance.connect(self.handleMessage)
         GUI.defaultOutputFolderButton.clicked.connect(self.selectDefaultOutputFolder)

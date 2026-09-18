@@ -40,6 +40,7 @@ from shutil import move, copytree, rmtree
 from multiprocessing import Pool, cpu_count
 from uuid import uuid4
 from natsort import os_sort_keygen, os_sorted
+from packaging.version import Version
 from slugify import slugify as slugify_ext
 from PIL import Image, ImageFile, ImageOps
 from pathlib import Path
@@ -77,9 +78,10 @@ def main(argv=None):
     if len(sources) == 0:
         print('No matching files found.')
         return 1
+    fusion_cover_path = None
     if options.filefusion:
         fusion_source_parent = str(Path(sources[0]).parent)
-        fusion_path = makeFusion(list(sources))
+        fusion_path, fusion_cover_path = makeFusion(list(sources))
         sources.clear()
         sources.append(fusion_path)
     for source in sources:
@@ -89,7 +91,7 @@ def main(argv=None):
             options.output = fusion_source_parent
         options = checkOptions(options)
         print('Working on ' + source + '...')
-        makeBook(source)
+        makeBook(source, fusion_cover_path)
 
     return 0
 
@@ -684,10 +686,13 @@ def imgDirectoryProcessing(path, job_progress=''):
     options.imgMetadata = {}
     work = []
     pagenumber = 0
+    is_first_page = True
     for dirpath, _, filenames in os.walk(path):
-        for afile in filenames:
+        for afile in os_sorted(filenames):
             pagenumber += 1
-            work.append([afile, dirpath, options])
+            work.append([afile, dirpath, options, is_first_page])
+            if is_first_page:
+                is_first_page = False
     if GUI:
         GUI.progressBarTick.emit(str(pagenumber))
     if len(work) > 0:
@@ -732,16 +737,20 @@ def imgFileProcessing(work):
         afile = work[0]
         dirpath = work[1]
         opt = work[2]
+        is_first_page = work[3]
         output = []
         workImg = image.ComicPageParser((dirpath, afile), opt)
         for i in workImg.payload:
             img = image.ComicPage(opt, *i)
-            if opt.cropping == 2 and not opt.webtoon:
-                img.cropPageNumber(opt.croppingp, opt.croppingm)
-            if opt.cropping == 1 and not opt.webtoon:
-                img.cropMargin(opt.croppingp, opt.croppingm)
-            if opt.interpanelcrop > 0:
-                img.cropInterPanelEmptySections("horizontal" if opt.interpanelcrop == 1 else "both")
+            if is_first_page and img.color:
+                pass
+            else:
+                if opt.cropping == 2 and not opt.webtoon:
+                    img.cropPageNumber(opt.croppingp, opt.croppingm)
+                if opt.cropping == 1 and not opt.webtoon:
+                    img.cropMargin(opt.croppingp, opt.croppingm)
+                if opt.interpanelcrop > 0:
+                    img.cropInterPanelEmptySections("horizontal" if opt.interpanelcrop == 1 else "both")
 
             img.gammaCorrectImage()
 
@@ -1748,17 +1757,58 @@ def checkTools(source):
             print('ERROR: 7z is missing!')
             sys.exit(1)
     if options.format == 'MOBI':
-        try:
-            subprocess_run(['kindlegen', '-locale', 'en'], stdout=PIPE, stderr=STDOUT, check=True)
-        except (FileNotFoundError, CalledProcessError):
-            print('ERROR: KindleGen is missing!')
-            sys.exit(1)
-        except OSError as e:
-            print(f"kindlegen: {e.strerror}")
-            print('Re-install Rosetta/Kindle Previewer/other Intel app?')
-            print('Please email Amazon to make Kindle Previewer Apple silicon native at amazon.com/kindle-help')
+        if not detectKindleGen():
             sys.exit(1)
 
+def detectKindleGen(GUI=None):
+    if sys.platform.startswith('win'):
+        if not _detectKindleGen():
+            start = perf_counter()
+            try:
+                for i in range(0, 200):
+                    for j in range(0, 20):
+                        for k in range (0, 20):
+                            path = f'C:\\Program Files\\WindowsApps\\KindlePreviewerApp_4.{i}.{j}.{k}_x64__ek06e0aw29nma'
+                            if os.path.exists(path):
+                                kindlegen_path = os.path.join(path, 'KindlePreviewerApp\\resources\\KFXGen\\bin\\kindlegen.exe')
+                                tool_path = 'C:\\Tools'
+                                if not os.path.isdir(tool_path):
+                                    os.mkdir(tool_path)
+                                shutil.copy2(kindlegen_path, tool_path)
+            except Exception:
+                pass
+            end = perf_counter()
+            print(f"Search for Windows KindleGen: {end - start} sec")
+        return _detectKindleGen(GUI)
+    else:
+        try:
+            os.chmod('/usr/local/bin/kindlegen', 0o755)
+        except Exception:
+            pass
+        return _detectKindleGen(GUI)
+
+def _detectKindleGen(GUI=None):
+    try:
+        versionCheck = subprocess_run(['kindlegen', '-locale', 'en'], stdout=PIPE, stderr=STDOUT, encoding='UTF-8', errors='ignore', check=True)
+        for line in versionCheck.stdout.splitlines():
+            if 'Amazon kindlegen' in line:
+                versionCheck = line.split('V')[1].split(' ')[0]
+                if Version(versionCheck) < Version('2.9'):
+                    if GUI:
+                        GUI.addMessage('Your <a href="https://www.amazon.com/b?node=23496309011">KindleGen</a>'
+                                       ' is outdated! MOBI conversion might fail.', 'warning')
+                break
+        return True
+    except (FileNotFoundError, CalledProcessError):
+        print('ERROR: KindleGen is missing!')
+        return False
+    except (OSError, Exception) as e:
+        print(f"kindlegen: {e.strerror}")
+        print('Re-install or re-open Rosetta/Kindle Previewer/other Intel app?')
+        if GUI:
+            error = f"kindlegen: {e.strerror}\n\n Re-install or re-open Rosetta/Kindle Previewer/other Intel app?"
+            GUI.showDialog(error, 'error')
+        return False
 
 def checkPre(source='KCC-'):
     # Make sure that all temporary files are gone
@@ -1772,6 +1822,19 @@ def makeFusion(sources: List[str]):
         raise UserWarning('Fusion requires at least 2 sources. Did you forget to uncheck fusion?')
     start = perf_counter()
     first_path = Path(sources[0])
+
+    fusion_cover_path = None
+    if first_path.parent.joinpath('Covers').is_dir():
+        covers = os.listdir(first_path.parent.joinpath('Covers'))
+        filtered_covers = []
+        for cover in covers:
+            _, cover_ext = getImageFileName(cover)
+            if cover_ext in IMAGE_TYPES:
+                filtered_covers.append(cover)
+        try:
+            fusion_cover_path = first_path.parent.joinpath('Covers', filtered_covers[0])
+        except IndexError:
+            pass
 
     if options.tempdir:
         fusion_parent = first_path.parent
@@ -1814,10 +1877,10 @@ def makeFusion(sources: List[str]):
     print(f"makefusion: {end - start} seconds")
     print("Combined File: "+ str(fusion_path))
     
-    return str(fusion_path)
+    return str(fusion_path), fusion_cover_path
 
 
-def makeBook(source, qtgui=None, job_progress=''):
+def makeBook(source, fusion_cover_path=None, qtgui=None, job_progress=''):
     start = perf_counter()
     global GUI
     GUI = qtgui
@@ -1912,9 +1975,12 @@ def makeBook(source, qtgui=None, job_progress=''):
             options.customcover = True
         except IndexError:
             pass
+    if fusion_cover_path:
+        options.customcover = True
+        cover_path = fusion_cover_path
 
     cover = None
-    if not options.webtoon:
+    if not options.webtoon or options.customcover:
         cover = image.Cover(cover_path, options)
 
     x, y = image.ProfileData.Profiles[options.profile][1]

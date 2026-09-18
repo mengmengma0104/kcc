@@ -33,6 +33,7 @@ def modify_path():
         mac_paths = [
             '/Applications/Kindle Comic Creator/Kindle Comic Creator.app/Contents/MacOS',
             '/Applications/Kindle Previewer 3.app/Contents/lib/fc/bin/',
+            '/Applications/Kindle Previewer 4.app/Contents/Resources/KFXGen/bin/'
         ]
         if getattr(sys, 'frozen', False):
             os.environ['PATH'] += os.pathsep + os.pathsep.join(mac_paths +
@@ -68,6 +69,7 @@ def modify_path():
             os.path.expandvars('%LOCALAPPDATA%\\Amazon\\KC2'),
             os.path.expandvars('%LOCALAPPDATA%\\Amazon\\Kindle Previewer 3\\lib\\fc\\bin\\'),
             os.path.expandvars('%UserProfile%\\Kindle Previewer 3\\lib\\fc\\bin\\'),
+            'C:\\Tools',
             'C:\\Apps\\Kindle Previewer 3\\lib\\fc\\bin',
             'D:\\Apps\\Kindle Previewer 3\\lib\\fc\\bin',
             'E:\\Apps\\Kindle Previewer 3\\lib\\fc\\bin',

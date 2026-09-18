@@ -1127,6 +1127,12 @@
        </item>
        <item row="0" column="4">
         <widget class="QPushButton" name="expertButton">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>30</height>
+          </size>
+         </property>
          <property name="toolTip">
           <string>切换简易/专家模式</string>
          </property>

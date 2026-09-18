@@ -11,15 +11,15 @@
 
 | 文件 | 说明 |
 |---|---|
-| `KCC_11.2.0_zh.exe` | Windows 单文件程序（约 84 MB），双击即用，无需安装 Python |
+| `KCC_11.3.2_zh.exe` | Windows 单文件程序（约 91 MB），双击即用，无需安装 Python |
 
 **SHA256 校验值**：
 
 ```
-ab8db6e5769c0aefd934106b8f595885319b322f43ee7683f83e03dee15fc91c
+05d1cb189151f62c559aba682556cc7e1072c7918057259777cf35b561f2f8e0
 ```
 
-下载后可执行 `certutil -hashfile KCC_11.2.0_zh.exe SHA256` 核对，或对照附件 `SHA256SUMS.txt`。
+下载后可执行 `certutil -hashfile KCC_11.3.2_zh.exe SHA256` 核对，或对照附件 `SHA256SUMS.txt`。
 
 > **首次运行弹出「Windows 已保护你的电脑」？** 这是 SmartScreen 对未签名程序的常规提示——
 > 本 exe 由源码直接构建、未购买代码签名证书，不代表有病毒。点击「更多信息」→「仍要运行」即可。
@@ -32,13 +32,25 @@ ab8db6e5769c0aefd934106b8f595885319b322f43ee7683f83e03dee15fc91c
 
 ## 这是什么
 
-基于 **Kindle Comic Converter 11.2.0** 官方源码的**完整简体中文化**版本。
+基于 **Kindle Comic Converter 11.3.2** 官方源码的**完整简体中文化**版本。
 
 把漫画/条漫转换成电子墨水阅读器专用格式，页面满屏无白边、支持固定版式。
 
 - 输入：图片文件夹、CBZ/ZIP、CBR/RAR、CB7/7Z、PDF
 - 输出：MOBI/AZW3、EPUB、KEPUB、CBZ、PDF、图片文件夹
 - 支持设备：Kindle 全系、Kobo 全系、reMarkable 等 45 种设备配置
+
+### 本版相对 v11.2.0-zh 跟进的上游改进
+
+上游 11.2.0 → 11.3.2 共 19 个提交，本次全部跟进，主要包括：
+
+- **支持 Kindle Previewer 4**（新增 4 个提交：重构 kindlegen 检测、扩展 Windows 搜索路径）
+- **修复裁剪边界瑕疵**（edge imperfections）
+- **支持条漫与文件合并的自定义封面**
+- **修复专家模式在 Windows 上的按钮高度与标签显示**
+- 不再裁剪彩色的首页
+
+上游这轮改动均为后端逻辑，**未引入新的界面文字**，因此汉化覆盖率保持不变。
 
 ---
 

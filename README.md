@@ -6,7 +6,7 @@
 [![平台](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows-lightgrey)](#一快速开始)
 [![内容由 AI 生成](https://img.shields.io/badge/%E5%86%85%E5%AE%B9%E7%94%B1-AI%20%E7%94%9F%E6%88%90-orange)](#八许可证与合规)
 
-# KCC 漫画转换器 11.2.0（简体中文汉化版）
+# KCC 漫画转换器 11.3.2（简体中文汉化版）
 
 ![KCC 简体中文汉化版实际运行界面](docs/screenshot.png)
 
@@ -23,13 +23,13 @@
 **Kindle Comic Converter（KCC）** 是一款把漫画、条漫、轻小说转换成电子墨水阅读器专用格式的工具。
 转换后的页面可以**满屏无白边**显示，并支持固定版式。
 
-本版本基于官方 **11.2.0** 源码完整汉化，仅界面文字改为简体中文，转换引擎与官方完全一致。
+本版本基于官方 **11.3.2** 源码完整汉化，仅界面文字改为简体中文，转换引擎与官方完全一致。
 
 ---
 
 ## 一、快速开始
 
-1. 双击 `KCC_11.2.0_zh.exe` 启动程序（首次启动稍慢，属于正常现象）。
+1. 双击 `KCC_11.3.2_zh.exe` 启动程序（首次启动稍慢，属于正常现象）。
 2. 把漫画文件或图片文件夹**拖入窗口**，或点击「添加输入文件」/「添加输入文件夹」。
 3. 在右上角选择你的**设备**，在左上角选择**输出格式**。
 4. 点击「开始转换」。转换完成后，输出文件会和源文件放在同一目录（或你指定的目录）。
@@ -41,10 +41,10 @@
 ### 下载与安全校验
 
 - 程序本体在 [Releases 页面](https://github.com/mengmengma0104/kcc-zh-cn/releases/latest)下载：
-  `KCC_11.2.0_zh.exe`（约 84 MB，单文件免安装）。
+  `KCC_11.3.2_zh.exe`（约 91 MB，单文件免安装）。
 - **SHA256 校验值**：
-  `ab8db6e5769c0aefd934106b8f595885319b322f43ee7683f83e03dee15fc91c`
-  下载后可在命令行执行 `certutil -hashfile KCC_11.2.0_zh.exe SHA256` 核对，或对照 Release 附件中的 `SHA256SUMS.txt`。
+  `05d1cb189151f62c559aba682556cc7e1072c7918057259777cf35b561f2f8e0`
+  下载后可在命令行执行 `certutil -hashfile KCC_11.3.2_zh.exe SHA256` 核对，或对照 Release 附件中的 `SHA256SUMS.txt`。
 - **首次运行弹出「Windows 已保护你的电脑」？** 这是 Windows SmartScreen 对**未签名程序**的常规提示——
   本 exe 由源码直接构建，没有购买代码签名证书，并不代表有病毒。点击「更多信息」→「仍要运行」即可。
   如果不放心，可以跳过下载、按第七节自行从源码构建。
@@ -89,7 +89,7 @@ KCC 生成 MOBI 依赖亚马逊官方的 `kindlegen` 工具。
 
 - **推荐方式**：安装 [Kindle Previewer](https://www.amazon.com/Kindle-Previewer/b?ie=UTF8&node=21381691011)（免费），
   KCC 会自动从中找到 kindlegen，无需手动配置。
-- **如果你已经有** `kindlegen.exe`：把它放在 `KCC_11.2.0_zh.exe` **同一个文件夹**里，程序会自动识别。
+- **如果你已经有** `kindlegen.exe`：把它放在 `KCC_11.3.2_zh.exe` **同一个文件夹**里，程序会自动识别。
 
 > **本仓库为何不附带 kindlegen？**
 > `kindlegen` 是亚马逊的专有软件，其许可**明确不允许再分发**（仅授权安装使用，不允许转载、不允许通过网络分发）。
@@ -159,7 +159,7 @@ A：设备型号名（如 Kindle Oasis、Kobo Clara 2E）刻意保留原文，�
 
 ## 六、汉化说明与已知限制
 
-- 汉化方式为**直接替换界面文字**：程序结构、转换算法与官方 11.2.0 完全一致，只是文字改成中文。
+- 汉化方式为**直接替换界面文字**：程序结构、转换算法与官方 11.3.2 完全一致，只是文字改成中文。
 - **本项目在 AI 辅助下完成**，翻译由 AI 生成、未经人工逐条校对，可能存在不准确之处。界面文字为就地替换，**不支持中英切换**；如需英文原版，请从官方仓库下载：https://github.com/ciromattia/kcc/releases
 - 设备下拉框中，彩色机型额外标注了「（彩色）」以便区分。
 - 本汉化版**仅包含图形界面程序**，不含命令行工具 `kcc-c2e` / `kcc-c2p`。
@@ -186,10 +186,13 @@ cd kcc-11.2.0-zh
 py -3.13 -m venv venv
 venv\Scripts\activate.bat
 pip install -r requirements.txt pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
-pyinstaller --hidden-import=_cffi_backend -y -F -i icons\comic2ebook.ico -n KCC_11.2.0_zh -w --noupx kcc.py
+venv\Scripts\python.exe -m PyInstaller --hidden-import=_cffi_backend -y -F -i icons\comic2ebook.ico -n KCC_11.3.2_zh -w --noupx kcc.py
 ```
 
-产物为 `dist\KCC_11.2.0_zh.exe`（约 84 MB）。
+> 用 `python -m PyInstaller` 而非直接调 `pyinstaller.exe`：venv 若被移动过，
+> pip 生成的入口程序内嵌旧路径会静默失效（rc=1 无输出），模块方式不受影响。
+
+产物为 `dist\KCC_11.3.2_zh.exe`（约 91 MB）。
 构建前请自行把 `kindlegen.exe` 放在 exe 同目录，否则 MOBI 转换不可用。
 
 汉化相关工具位于 `tools\zh\`：
