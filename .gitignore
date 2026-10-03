@@ -16,7 +16,7 @@ osx10.11
 /kcc.bat
 .DS_Store
 # 构建产物（本地打包，不入库）
-KCC_11.2.0_zh.spec
+KCC_*_zh.spec
 SHA256SUMS.txt
 
 # 测试与审计产物（可重新生成，不入库）

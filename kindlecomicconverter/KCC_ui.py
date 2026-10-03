@@ -240,11 +240,6 @@ class Ui_mainWindow(object):
 
         self.gridLayout_2.addWidget(self.outputSplit, 4, 1, 1, 1)
 
-        self.tempDirBox = QCheckBox(self.optionWidget)
-        self.tempDirBox.setObjectName(u"tempDirBox")
-
-        self.gridLayout_2.addWidget(self.tempDirBox, 10, 2, 1, 1)
-
         self.disableProcessingBox = QCheckBox(self.optionWidget)
         self.disableProcessingBox.setObjectName(u"disableProcessingBox")
 
@@ -499,6 +494,16 @@ class Ui_mainWindow(object):
 
         self.gridLayout_2.addWidget(self.keepComicInfoBox, 3, 3, 1, 1)
 
+        self.tempDirBox = QCheckBox(self.optionWidget)
+        self.tempDirBox.setObjectName(u"tempDirBox")
+
+        self.gridLayout_2.addWidget(self.tempDirBox, 11, 2, 1, 1)
+
+        self.legacyPanelViewBox = QCheckBox(self.optionWidget)
+        self.legacyPanelViewBox.setObjectName(u"legacyPanelViewBox")
+
+        self.gridLayout_2.addWidget(self.legacyPanelViewBox, 10, 2, 1, 1)
+
 
         self.gridLayout.addWidget(self.optionWidget, 5, 0, 1, 2)
 
@@ -714,10 +719,6 @@ class Ui_mainWindow(object):
 #endif // QT_CONFIG(tooltip)
         self.outputSplit.setText(QCoreApplication.translate("mainWindow", u"输出分卷", None))
 #if QT_CONFIG(tooltip)
-        self.tempDirBox.setToolTip(QCoreApplication.translate("mainWindow", u"<html><head/><body><p><span style=\" font-weight:600; text-decoration: underline;\">未勾选 - 主硬盘<br/></span>在系统主硬盘上使用专用临时目录。</p><p><span style=\" font-weight:600; text-decoration: underline;\">勾选 - 源文件所在盘<br/></span>在源文件所在磁盘创建临时目录。</p></body></html>", None))
-#endif // QT_CONFIG(tooltip)
-        self.tempDirBox.setText(QCoreApplication.translate("mainWindow", u"临时目录", None))
-#if QT_CONFIG(tooltip)
         self.disableProcessingBox.setToolTip(QCoreApplication.translate("mainWindow", u"<html><head/><body><p style='white-space:pre'>不对图像做任何处理，忽略配置文件和图像处理选项。</p></body></html>", None))
 #endif // QT_CONFIG(tooltip)
         self.disableProcessingBox.setText(QCoreApplication.translate("mainWindow", u"禁用图像处理", None))
@@ -838,9 +839,9 @@ class Ui_mainWindow(object):
 #endif // QT_CONFIG(tooltip)
         self.eraseRainbowBox.setText(QCoreApplication.translate("mainWindow", u"彩虹纹消除", None))
 #if QT_CONFIG(tooltip)
-        self.webpBox.setToolTip(QCoreApplication.translate("mainWindow", u"用有损 WebP 替换 JPG、用无损 WebP 替换 PNG（JPEG 质量设置同样生效）。\n\n对 Kindle 的 EPUB/MOBI 以及所有 PDF 无效。", None))
+        self.webpBox.setToolTip(QCoreApplication.translate("mainWindow", u"用有损 WebP 替换 JPG、用无损 WebP 替换 PNG（JPEG 质量设置同样生效）。\n\n对 Kindle 的 EPUB/MOBI 以及所有 PDF 无效。\n\n对彩色内容的体积改善非常明显。\n\n对黑白内容收益不大：相比 PNG 体积改善有限，且资源占用更高。", None))
 #endif // QT_CONFIG(tooltip)
-        self.webpBox.setText(QCoreApplication.translate("mainWindow", u"WebP（实验性）", None))
+        self.webpBox.setText(QCoreApplication.translate("mainWindow", u"WebP", None))
 #if QT_CONFIG(tooltip)
         self.rotateBox.setToolTip(QCoreApplication.translate("mainWindow", u"<html><head/><body><p><span style=\" font-weight:600; text-decoration: underline;\">未勾选 - 拆分<br/></span>跨页图裁成两个独立页面。</p><p><span style=\" font-weight:600; text-decoration: underline;\">半选 - 拆分并旋转<br/></span>跨页图显示两次：先拆分，再旋转。</p><p><span style=\" font-weight:600; text-decoration: underline;\">勾选 - 旋转<br/></span>跨页图旋转显示。</p></body></html>", None))
 #endif // QT_CONFIG(tooltip)
@@ -889,6 +890,14 @@ class Ui_mainWindow(object):
         self.keepComicInfoBox.setToolTip(QCoreApplication.translate("mainWindow", u"保留原有的 ComicInfo.xml 文件。\n\n保留该文件可能导致某些阅读器崩溃，例如 Kobo 自带的 CBZ 阅读器。", None))
 #endif // QT_CONFIG(tooltip)
         self.keepComicInfoBox.setText(QCoreApplication.translate("mainWindow", u"保留 ComicInfo.xml", None))
+#if QT_CONFIG(tooltip)
+        self.tempDirBox.setToolTip(QCoreApplication.translate("mainWindow", u"<html><head/><body><p><span style=\" font-weight:600; text-decoration: underline;\">未勾选 - 主硬盘<br/></span>在系统主硬盘上使用专用临时目录。</p><p><span style=\" font-weight:600; text-decoration: underline;\">勾选 - 源文件所在盘<br/></span>在源文件所在磁盘创建临时目录。</p></body></html>", None))
+#endif // QT_CONFIG(tooltip)
+        self.tempDirBox.setText(QCoreApplication.translate("mainWindow", u"临时目录", None))
+#if QT_CONFIG(tooltip)
+        self.legacyPanelViewBox.setToolTip(QCoreApplication.translate("mainWindow", u"使用 KCC 6 的旧版面板视图方式。\n\n在固件 5.19.2（回退前）和 5.19.3+ 上基本可用", None))
+#endif // QT_CONFIG(tooltip)
+        self.legacyPanelViewBox.setText(QCoreApplication.translate("mainWindow", u"旧版面板视图", None))
         self.jpegQualityLabel.setText(QCoreApplication.translate("mainWindow", u"JPEG 质量：", None))
 #if QT_CONFIG(tooltip)
         self.labelSpreadsButton.setToolTip(QCoreApplication.translate("mainWindow", u"按住 Shift 点击可生成低质量预览。", None))

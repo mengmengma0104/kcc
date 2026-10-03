@@ -419,16 +419,6 @@
          </property>
         </widget>
        </item>
-       <item row="10" column="2">
-        <widget class="QCheckBox" name="tempDirBox">
-         <property name="toolTip">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-weight:600; text-decoration: underline;"&gt;未勾选 - 主硬盘&lt;br/&gt;&lt;/span&gt;在系统主硬盘上使用专用临时目录。&lt;/p&gt;&lt;p&gt;&lt;span style=" font-weight:600; text-decoration: underline;"&gt;勾选 - 源文件所在盘&lt;br/&gt;&lt;/span&gt;在源文件所在磁盘创建临时目录。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-         </property>
-         <property name="text">
-          <string>临时目录</string>
-         </property>
-        </widget>
-       </item>
        <item row="6" column="3">
         <widget class="QCheckBox" name="disableProcessingBox">
          <property name="toolTip">
@@ -835,10 +825,14 @@
          <property name="toolTip">
           <string>用有损 WebP 替换 JPG、用无损 WebP 替换 PNG（JPEG 质量设置同样生效）。
 
-对 Kindle 的 EPUB/MOBI 以及所有 PDF 无效。</string>
+对 Kindle 的 EPUB/MOBI 以及所有 PDF 无效。
+
+对彩色内容的体积改善非常明显。
+
+对黑白内容收益不大：相比 PNG 体积改善有限，且资源占用更高。</string>
          </property>
          <property name="text">
-          <string>WebP（实验性）</string>
+          <string>WebP</string>
          </property>
         </widget>
        </item>
@@ -981,6 +975,28 @@
          </property>
          <property name="text">
           <string>保留 ComicInfo.xml</string>
+         </property>
+        </widget>
+       </item>
+       <item row="11" column="2">
+        <widget class="QCheckBox" name="tempDirBox">
+         <property name="toolTip">
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-weight:600; text-decoration: underline;"&gt;未勾选 - 主硬盘&lt;br/&gt;&lt;/span&gt;在系统主硬盘上使用专用临时目录。&lt;/p&gt;&lt;p&gt;&lt;span style=" font-weight:600; text-decoration: underline;"&gt;勾选 - 源文件所在盘&lt;br/&gt;&lt;/span&gt;在源文件所在磁盘创建临时目录。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+         </property>
+         <property name="text">
+          <string>临时目录</string>
+         </property>
+        </widget>
+       </item>
+       <item row="10" column="2">
+        <widget class="QCheckBox" name="legacyPanelViewBox">
+         <property name="toolTip">
+          <string>使用 KCC 6 的旧版面板视图方式。
+
+在固件 5.19.2（回退前）和 5.19.3+ 上基本可用</string>
+         </property>
+         <property name="text">
+          <string>旧版面板视图</string>
          </property>
         </widget>
        </item>

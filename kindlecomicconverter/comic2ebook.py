@@ -62,6 +62,7 @@ from . import __version__
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 OS_SORT_KEY = os_sort_keygen()
+KF7_KINDLES = ('K1', 'K2', 'K34', 'KDX')
 
 def main(argv=None):
     global options
@@ -739,19 +740,9 @@ def imgFileProcessing(work):
         opt = work[2]
         is_first_page = work[3]
         output = []
-        workImg = image.ComicPageParser((dirpath, afile), opt)
+        workImg = image.ComicPageParser((dirpath, afile), is_first_page, opt)
         for i in workImg.payload:
             img = image.ComicPage(opt, *i)
-            if is_first_page and img.color:
-                pass
-            else:
-                if opt.cropping == 2 and not opt.webtoon:
-                    img.cropPageNumber(opt.croppingp, opt.croppingm)
-                if opt.cropping == 1 and not opt.webtoon:
-                    img.cropMargin(opt.croppingp, opt.croppingm)
-                if opt.interpanelcrop > 0:
-                    img.cropInterPanelEmptySections("horizontal" if opt.interpanelcrop == 1 else "both")
-
             img.gammaCorrectImage()
 
             if not img.colorOutput:
@@ -768,7 +759,7 @@ def imgFileProcessing(work):
                     img.quantizeImage()
                 if opt.format == 'PDF':
                     img.convertToGrayscale()
-                elif opt.profile == 'KDX' and opt.format == 'CBZ':
+                elif opt.profile in KF7_KINDLES and opt.format == 'CBZ':
                     img.convertToGrayscale()
                 elif opt.pnglegacy:
                     img.convertToGrayscale()
@@ -1508,6 +1499,8 @@ def makeParser():
                               help="Display two not four panels in Panel View mode")
     main_options.add_argument("--vertical4panel", action="store_true", dest="vertical4panel", default=False,
                               help="Display side panels first in virtual panel view")
+    main_options.add_argument("--legacypanelview", action="store_true", dest="legacypanelview", default=False,
+                              help="Use legacy panel view method from KCC 6")
     main_options.add_argument("-w", "--webtoon", action="store_true", dest="webtoon", default=False,
                               help="Webtoon processing mode"),
     main_options.add_argument("--ts", "--targetsize", type=int, dest="targetsize", default=None,
@@ -1669,7 +1662,7 @@ def checkOptions(options):
         options.skip_zip = True
         options.folder_output = True
     if options.format == 'Auto':
-        if options.profile in ['KDX']:
+        if options.profile in KF7_KINDLES:
             options.format = 'CBZ'
         elif options.profile in image.ProfileData.ProfilesKindle.keys():
             options.format = 'MOBI'
@@ -1686,10 +1679,10 @@ def checkOptions(options):
     if (options.format == 'MOBI' or options.format == 'KFX') and options.batchsplit != 2:
         options.batchsplit = 1
     # Older Kindle models don't support Panel View.
-    if options.profile == 'K1' or options.profile == 'K2' or options.profile == 'K34' or options.profile == 'KDX':
+    if options.profile in KF7_KINDLES:
         options.panelview = False
         options.hq = False
-    if not options.hq and not options.autoscale:
+    if not options.hq and not options.autoscale and not options.legacypanelview:
         options.panelview = False
     # Webtoon mode mandatory options
     if options.webtoon:

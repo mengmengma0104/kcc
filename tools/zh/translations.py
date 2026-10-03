@@ -381,6 +381,17 @@ UI.update({
         '仅缩放图像并保留原始文件结构。\n\n除 JPEG 质量、彩色模式、输出文件夹外，忽略大部分选项。',
     'Render vector PDFs to device width instead of height.\n\nUseful if you plan to crop a little off the top and bottom to fill screen.':
         '按设备宽度而非高度渲染矢量 PDF。\n\n如果打算裁掉上下少量边缘以填满屏幕，此选项很有用。',
+    # v12.0.0：WebP 工具提示被上游扩充（新增彩色/黑白内容两段），以新版为准
+    'Replace JPG with lossy WebP and PNG with lossless WebP. This includes the JPG Quality.\n\nIgnored for Kindle EPUB/MOBI and all PDF.\n\nMakes a large difference in filesize for color content.\n\nNot very useful for BW content due to minimal filesize improvement compared to PNG and greater resource usage. ':
+        '用有损 WebP 替换 JPG、用无损 WebP 替换 PNG（JPEG 质量设置同样生效）。\n\n对 Kindle 的 EPUB/MOBI 以及所有 PDF 无效。\n\n对彩色内容的体积改善非常明显。\n\n对黑白内容收益不大：相比 PNG 体积改善有限，且资源占用更高。',
+    # v12.0.0 新增选项：Legacy Panel View（KCC 6 旧版面板视图）
+    'Use legacy panel view method from KCC 6.\n\nKind of works on firmwares 5.19.2 (before revert) and 5.19.3+':
+        '使用 KCC 6 的旧版面板视图方式。\n\n在固件 5.19.2（回退前）和 5.19.3+ 上基本可用',
+    'Legacy Panel View':
+        '旧版面板视图',
+    # v12.0.0：WebP 标签去掉「(experimental)」
+    'WebP':
+        'WebP',
     'Replace JPG with lossy WebP and PNG with lossless WebP. This includes the JPG Quality.\n\nIgnored for Kindle EPUB/MOBI and all PDF.':
         '用有损 WebP 替换 JPG、用无损 WebP 替换 PNG（JPEG 质量设置同样生效）。\n\n对 Kindle 的 EPUB/MOBI 以及所有 PDF 无效。',
     'The JPEG quality, on a scale from 0 (worst) to 95 (best). \n\nDefault is 85 for most devices besides Kindle Scribe and Colorsoft, which are 90.\n\nHigher values are larger and higher quality, and may resolve blank page issues.':

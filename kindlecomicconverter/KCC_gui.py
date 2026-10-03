@@ -46,7 +46,7 @@ from .KCC_spread_label import LabelSpreadsDialog
 
 from .shared import HTMLStripper, sanitizeTrace, walkLevel
 from .comicarchive import SEVENZIP, TAR, available_archive_tools
-from .comic2ebook import OS_SORT_KEY, flattenTree, getWorkFolder, removeNonImages, sanitizeTree, detectKindleGen
+from .comic2ebook import OS_SORT_KEY, KF7_KINDLES, flattenTree, getWorkFolder, removeNonImages, sanitizeTree, detectKindleGen
 from . import __version__
 from . import comic2ebook
 from . import metadata
@@ -152,6 +152,9 @@ class Icons:
         self.bindle = QIcon()
         self.bindle.addPixmap(QPixmap(":/Brand/icons/Bindle_Red.png"), QIcon.Mode.Normal, QIcon.State.Off)
 
+        self.fanatical = QIcon()
+        self.fanatical.addPixmap(QPixmap(":/Brand/icons/fanatical.png"), QIcon.Mode.Normal, QIcon.State.Off)
+
 
 class VersionThread(QThread):
     def __init__(self, startNumber2):
@@ -203,6 +206,8 @@ class VersionThread(QThread):
                         icon = 'humble'
                     if category == 'humbleComicBundles':
                         icon = 'bindle'
+                    if category == 'fanaticalMangaBundles':
+                        icon = 'fanatical'
                     if category == 'kofi':
                         icon = 'kofi'
                     message = f"{payload.get('name')}"
@@ -270,6 +275,8 @@ def get_options():
         options.autoscale = True
     elif GUI.qualityBox.checkState() == Qt.CheckState.Checked:
         options.hq = True
+    if GUI.legacyPanelViewBox.isChecked():
+        options.legacypanelview = True
     if GUI.vertical4PanelBox.isChecked():
         options.vertical4panel = True
     if GUI.webtoonBox.isChecked():
@@ -854,6 +861,7 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
         GUI.autoLevelBox.show()
         GUI.autocontrastBox.show()
         GUI.vertical4PanelBox.show()
+        GUI.legacyPanelViewBox.show()
         GUI.tempDirBox.show()
         GUI.deleteBox.show()
         GUI.metadataTitleBox.show()
@@ -892,6 +900,7 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
         GUI.autoLevelBox.hide()
         GUI.autocontrastBox.hide()
         GUI.vertical4PanelBox.hide()
+        GUI.legacyPanelViewBox.hide()
         GUI.tempDirBox.hide()
         GUI.deleteBox.hide()
         GUI.metadataTitleBox.hide()
@@ -1131,7 +1140,7 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
                 if bad_format in current_format:
                     self.addMessage('Colorsoft 的 MOBI/EPUB 可能出现空白页。往回翻几页、退出再重新进入书籍即可恢复。', 'info')
                     break
-        elif profile['Label'] == 'KDX':
+        elif profile['Label'] in KF7_KINDLES:
             GUI.mozJpegBox.setCheckState(Qt.CheckState.PartiallyChecked)
             GUI.borderBox.setCheckState(Qt.CheckState.PartiallyChecked)
             GUI.pngLegacyBox.setChecked(True)
@@ -1289,6 +1298,7 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
                                            'rotateBox': GUI.rotateBox.checkState(),
                                            'qualityBox': GUI.qualityBox.checkState(),
                                            'vertical4PanelBox': GUI.vertical4PanelBox.checkState(),
+                                           'legacyPanelViewBox': GUI.vertical4PanelBox.checkState(),
                                            'gammaBox': GUI.gammaBox.checkState(),
                                            'autoLevelBox': GUI.autoLevelBox.checkState(),
                                            'autocontrastBox': GUI.autocontrastBox.checkState(),
@@ -1483,10 +1493,10 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
                 'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS',
             },
             "Kindle Scribe 3": {
-                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 3, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS3',
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 4, 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'KS3',
             },
             "Kindle Scribe Colorsoft": {
-                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 3, 'DefaultUpscale': False, 'ForceColor': True, 'Label': 'KSCS',
+                'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 4, 'DefaultUpscale': False, 'ForceColor': True, 'Label': 'KSCS',
             },
             "Kindle 11": {
                 'PVOptions': True, 'ForceExpert': False, 'DefaultFormat': 0, 'DefaultUpscale': True, 'ForceColor': False, 'Label': 'K11',
@@ -1528,11 +1538,11 @@ class KCCGUI(KCC_ui.Ui_mainWindow):
                                'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KoL'},
             "Kobo Forma": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 1,
                            'DefaultUpscale': True, 'ForceColor': False, 'Label': 'KoF'},
-            "Kindle 1": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 0,
+            "Kindle 1": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 2,
                          'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K1'},
-            "Kindle 2": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 0,
+            "Kindle 2": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 2,
                          'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K2'},
-            "Kindle Keyboard": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 0,
+            "Kindle Keyboard": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 2,
                                 'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K34'},
             "Kindle Touch": {'PVOptions': False, 'ForceExpert': False, 'DefaultFormat': 0,
                              'DefaultUpscale': False, 'ForceColor': False, 'Label': 'K34'},
