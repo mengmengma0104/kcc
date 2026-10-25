@@ -151,7 +151,7 @@ def dependencyCheck(level):
     except ImportError:
         missing.append('PyMuPDF 1.16.1+')
     if len(missing) > 0:
-        print('错误：' + ', '.join(missing) + ' 未安装！')
+        print('ERROR: ' + ', '.join(missing) + ' is not installed!')
         sys.exit(1)
 
 def subprocess_run(command, **kwargs):

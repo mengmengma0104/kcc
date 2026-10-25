@@ -1,10 +1,6 @@
-> 🌐 **English** | [简体中文 · 汉化版主页](README.md) | [简体中文 · 上游文档翻译（AI 生成）](README_upstream_zh.md)
+![thumbnail](images/thumbnail.jpeg)
 
-Most manga conversion methods for ereaders add margins. But KCC enables true fullscreen from top to bottom. 
-
-![header](images/header_margins720.jpeg)
-
-(feat. Ya Boy Kongming! and Fire Force from a [Humble Bundle](https://humblebundleinc.sjv.io/xL6Zv1) PDF source.)
+[Title: Ubunchu! | Author: Hiroshi Seo | Publisher: ASCII MEDIA WORKS Inc.]
 
 # KCC
 
@@ -33,17 +29,26 @@ KCC's main goal is maximum image quality at significantly smaller file size. For
    This can also improve battery life, page turn speed, and general performance
    on underpowered ereaders with small memory and storage capacities.
 
-2) fixes black levels to avoid gray/faded blacks found in many Kindle Store manga
+2) doesn't add extra margins like other software. KCC enables true fullscreen top to bottom.
 
-![black](images/black720.jpeg)
+![header](images/header_marginsXO.jpeg)
 
-3) fixes [the rainbow effect on Kaleido 3 color eink](https://www.youtube.com/watch?v=Dw2HTJCGMhw) without blur:
+[Title: Ya Boy Kongming! | Story: Yuto Yotsuba | Art: Ryo Ogawa | Publisher: Kodansha | Source: Humble Bundle]
+
+3) fixes black levels to avoid gray/faded blacks found in many Kindle Store manga.
+(The original source was gray, KCC processing made it black.)
+
+![black](images/black_white2.jpeg)
+
+[Title: Fire Force | Author: Atsushi Ohkubo | Publisher: Kodansha | Source: Humble Bundle]
+
+4) fixes [the rainbow effect on Kaleido 3 color eink](https://www.youtube.com/watch?v=Dw2HTJCGMhw) without blur using a 2D Discrete Fourier Transform:
 
 ![rainbow](images/rainbow720.jpeg)
 
-4) can [semi-automatically detect 2-page spreads](https://www.youtube.com/watch?v=kfIX67f7Aqk) from pre-split single pages:
+5) can [semi-automatically detect 2-page spreads](https://www.youtube.com/watch?v=kfIX67f7Aqk) from pre-split single pages:
 
-![before](images/spreadbefore720.jpeg)
+![before](images/joinorder.jpeg)
 
 You can view combined spreads either rotated or not:
 
@@ -57,19 +62,23 @@ You can view the split halves either before or after combined spreads:
 
 Just drop your input files into the KCC window, hit convert, and USB drop the output files onto your device's `documents` folder!
 
-https://github.com/user-attachments/assets/da73d625-e082-482d-91a4-ae4765e96fd7
+![settings](images/easy_small.png)
+
+There are a lot of options, but most people only care about the ones checked above.
+
+Hover over each option to see details in a tooltip.
+
+NOTE: some checkboxes can have a half-check marks.
 
 Then all your usb loaded comic files will show up next to all your normal books in your ereader library!
 
+Here's a quick video demo of how the process works (using expert mode):
+
+https://github.com/user-attachments/assets/da73d625-e082-482d-91a4-ae4765e96fd7
+
 The final result looks incredible on my 10" Kindle Scribe: https://www.youtube.com/watch?v=2CIHW2N9Enc
 
-**WARNING**: Kindle Scribe 2025 MOBI support may have blank pages. Use PDF instead.
-
-The GUI looks like this, built in Qt6. 
-There are a lot of options, but most people only care about the ones checked below.
-Hover over each option to see details in a tooltip. 
-
-![settings](images/settings.png)
+**WARNING**: Kindle Scribe 2025 MOBI support is limited, converted books may have blank pages. Use PDF instead.
 
 If you are on macOS and use a 2022+ Kindle, you may need to use Amazon USB File Manager for Mac or OpenMTP.
 
@@ -79,14 +88,18 @@ Installation tutorial: https://www.youtube.com/watch?v=IR2Fhcm9658
 
 ## Kindle Jailbreak for KOreader
 
-Jailbreaking to use KOreader is optional. KCC works just fine with the native mobi manga viewer.
+Jailbreaking to use KOreader is optional. MOBI manga converted by KCC can be opened in Kindle’s native reader just fine
 
 But if you jailbreak your Kindle, you'll unlock additional features like:
 
-1) compatibility with image formats better suited for manga like 4-bit PNG and WEBP. This enables better quality at **half the file size** compared to JPG which must be 8-bit.
+1) compatibility with image formats better suited for manga like dithered 4-bit PNG and WEBP. This enables better quality at **half the file size** compared to JPG which must be 8-bit.
    This is visually lossless since eink screens are 4-bit.
 2) no dependency on kindlegen, which can mean **twice as fast conversions** since you can convert to CBZ directly.
 3) You can dither by partially checking the JPG/PNG box and can crop in KCC instead of KOreader. This may increase page turn speed and battery.
+
+Common KOreader manga mistakes: https://youtu.be/gaakIh9p8tw?si=X7OgPJlAvL9XGbLR
+
+Set per folder setting defaults: https://youtu.be/O9p6HVWIQ6s?si=Jtx607erCBA_auWM
 
 ### A word of warning
 **KCC** _is not_ [Amazon's Kindle Comic Creator](http://www.amazon.com/gp/feature.html?ie=UTF8&docId=1001103761) nor is in any way endorsed by Amazon.
@@ -132,13 +145,11 @@ Click on **Assets** of the latest release.
 You probably want either
 - `KCC_*.*.*.exe` (Windows)
 - `kcc_macos_arm_*.*.*.dmg` (recent Mac with Apple Silicon M1 chip or later)
-- `kcc_macos_i386_*.*.*.dmg` (older Mac with Intel chip macOS 14+)
+- `kcc_macos_i386_*.*.*.dmg` (older Mac with Intel chip macOS 10.14+)
 
-There are also legacy macOS 10.14+ and Windows 7 experimental versions available.
+There are also various builds for niche platforms like Windows 7, Windows 11 ARM, 
 
 The `c2e` and `c2p` versions are command line tools for power users.
-
-On macOS, if you get a `can't be opened` error, follow: https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac
 
 For flatpak, Docker, and AppImage versions, refer to the wiki: https://github.com/ciromattia/kcc/wiki/Installation
 
@@ -152,13 +163,17 @@ For flatpak, Docker, and AppImage versions, refer to the wiki: https://github.co
   - May happen when [using PNG with Kindle Scribe](https://github.com/ciromattia/kcc/issues/665) or [any format with a Kindle Colorsoft](https://github.com/ciromattia/kcc/issues/768). Solve by using JPG with Kindle Scribe or buying a Kobo Colour. Happens more often when turning pages really fast. You can try PDF output.
     Going back a few pages and exiting and re-entering book should fix it temporarily.
 - What output format should I use?
-  - MOBI for Kindles. CBZ for Kindle DX. CBZ for Koreader. KEPUB for Kobo. PDF for ReMarkable or Kindle Scribe 2025.
+  - MOBI for modern Kindles. [CBZ for KF7 Kindles](https://ebooks.stackexchange.com/questions/173/how-to-use-the-e-ink-kindle-readers-to-display-photos) like the Kindle 1/2/3/DX. CBZ for Koreader. KEPUB for Kobo (Kobo profile + EPUB = KEPUB). PDF for ReMarkable or Kindle Scribe 2025.
 - Where is KEPUB option?
   - Choosing a Kobo profile and EPUB output will output KEPUB.
+- KEPUB crashes on Kobo?
+  - Remove any special characters like `!` from the filepath, including any intermediate **folders.** 
 - All options have additional information in tooltips if you hover over the option.
 - To get the converted book onto your Kindle/Kobo, just drag and drop the mobi/kepub into the documents folder on your Kindle/Kobo via USB
 - Kindle panel view not working?
   - Virtual panel view is enabled in Aa menu on your Kindle, not in KCC as of 7.4
+- No page turn animation on Kindle MOBI?
+  - Use legacy panel view option. Or enable page turn animation in a normal book and then come back to the mobi.
 - Right to left mode not working?
   - RTL mode only affects splitting order for CBZ output. Your cbz reader itself sets the page turn direction.
 - Colors inverted?
@@ -217,7 +232,7 @@ sudo apt-get install python3 p7zip-full python3-pil python3-psutil python3-slugi
 ```
         'K1': ("Kindle 1", (600, 670), Palette4, 1.0),
         'K2': ("Kindle 2", (600, 670), Palette15, 1.0),
-        'K11': ("Kindle 11", (1072, 1448), Palette16, 1.0),
+        'K11': ("Kindle 11/2026", (1072, 1448), Palette16, 1.0),
         'K34': ("Kindle Keyboard/Touch", (600, 800), Palette16, 1.0),
         'K57': ("Kindle 5/7", (600, 800), Palette16, 1.0),
         'K810': ("Kindle 8/10", (600, 800), Palette16, 1.0),
@@ -226,7 +241,7 @@ sudo apt-get install python3 p7zip-full python3-pil python3-psutil python3-slugi
         'KV': ("Kindle Voyage", (1072, 1448), Palette16, 1.0),
         'KPW34': ("Kindle Paperwhite 3/4", (1072, 1448), Palette16, 1.0),
         'KPW5': ("Kindle Paperwhite 5/Signature Edition", (1236, 1648), Palette16, 1.0),
-        'KPW6': ("Kindle Paperwhite 6", (1272, 1696), Palette16, 1.0),
+        'KPW6': ("Kindle Paperwhite 6/2026", (1272, 1696), Palette16, 1.0),
         'KO': ("Kindle Oasis 2/3", (1264, 1680), Palette16, 1.0),
         'KCS': ("Kindle Colorsoft", (1272, 1696), Palette16, 1.0),
         'KS1860': ("Kindle 1860", (1860, 1920), Palette16, 1.0),
@@ -244,7 +259,7 @@ sudo apt-get install python3 p7zip-full python3-pil python3-psutil python3-slugi
         'KoAH2O': ("Kobo Aura H2O", (1080, 1430), Palette16, 1.0),
         'KoAO': ("Kobo Aura ONE", (1404, 1872), Palette16, 1.0),
         'KoN': ("Kobo Nia", (758, 1024), Palette16, 1.0),
-        'KoC': ("Kobo Clara HD/Kobo Clara 2E", (1072, 1448), Palette16, 1.0),
+        'KoC': ("Kobo Clara HD/Kobo Clara 2E/Kobo Clara BW", (1072, 1448), Palette16, 1.0),
         'KoCC': ("Kobo Clara Colour", (1072, 1448), Palette16, 1.0),
         'KoL': ("Kobo Libra H2O/Kobo Libra 2", (1264, 1680), Palette16, 1.0),
         'KoLC': ("Kobo Libra Colour", (1264, 1680), Palette16, 1.0),
@@ -268,7 +283,9 @@ MANDATORY:
 
 MAIN:
   -p PROFILE, --profile PROFILE
-                        Device profile (Available options: K1, K2, K34, K578, KDX, KPW, KPW5, KV, KO, K11, KS, KoMT, KoG, KoGHD, KoA, KoAHD, KoAH2O, KoAO, KoN, KoC, KoCC, KoL, KoLC, KoF, KoS, KoE)
+                        Device profile (Available options: K1, K2, KDX, K34, K57, KPW, KV, KPW34, K810, KO, K11, KPW5, KPW6, KS1860, KS1920,
+                        KS1240, KS1324, KS, KCS, KS3, KSCS, KoMT, KoG, KoGHD, KoA, KoAHD, KoAH2O, KoAO, KoN, KoC, KoCC, KoL, KoLC, KoF, KoS, KoE,
+                        Rmk1, Rmk2, RmkPP, RmkPPMove, OTHER, 1072x1448, 1264x1680, 1404x1872, 1536x2048, 1650x2200, 1860x2480, 2400x3200)
                         [Default=KV]
   -m, --manga-style     Manga style (right-to-left reading and splitting)
   --lightnovel          Only resize images and preserve original file structure.
@@ -276,7 +293,8 @@ MAIN:
   --invertdirection     Invert page turn direction
   -q, --hq              Try to increase the quality of magnification
   -2, --two-panel       Display two not four panels in Panel View mode
-  --vertical4panel       Show side panels first in virtual panel view
+  --vertical4panel      Show side panels first in virtual panel view
+  --legacypanelview     Use legacy panel view method from KCC 6
   -w, --webtoon         Webtoon processing mode
   --ts TARGETSIZE, --targetsize TARGETSIZE
                         the maximal size of output file in MB. [Default=100MB for webtoon and 400MB for others]
@@ -387,7 +405,11 @@ If you want to edit the `.ui` files, use `pyside6-designer` which is included in
 If new objects have been added, verify that correct tab order has been applied by using [Tab Order Editing Mode](https://doc.qt.io/qt-6/designer-tab-order.html).
 Then use the `gen_ui_files` scripts to autogenerate the python UI.
 
-An example PR adding a new checkbox is here: https://github.com/ciromattia/kcc/pull/785
+When adding or changing translatable strings (`self.tr(...)`), run the
+`gen_translation_files` scripts to regenerate the translation sources and
+recompile them; see `TRANSLATION.md` for the full workflow.
+
+An example PR adding a new checkbox is here: https://github.com/ciromattia/kcc/pull/1445
 
 video of adding a new checkbox: https://youtu.be/g3I8DU74C7g
 
@@ -494,3 +516,5 @@ Copyright (c) 2012-2025 Ciro Mattia Gonano, Paweł Jastrzębski, Darodi and Alex
 
 ## Verification
 Impact-Site-Verification: ffe48fc7-4f0c-40fd-bd2e-59f4d7205180
+
+Awin

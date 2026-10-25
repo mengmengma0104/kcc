@@ -25,3 +25,5 @@ testdata/
 
 # 上游 CI 配置本地保留但不入库（本仓库不启用 CI）
 .github/workflows/
+tools/zh/strict_audit.txt
+tools/zh/i18n_coverage_miss.txt

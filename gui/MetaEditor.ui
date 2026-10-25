@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>editorDialog</class>
  <widget class="QDialog" name="editorDialog">
@@ -17,7 +17,7 @@
    </size>
   </property>
   <property name="windowTitle">
-   <string>元数据编辑器</string>
+   <string>Metadata editor</string>
   </property>
   <property name="windowIcon">
    <iconset resource="KCC.qrc">
@@ -45,22 +45,22 @@
       <item row="0" column="0">
        <widget class="QLabel" name="label_1">
         <property name="text">
-         <string>系列：</string>
+         <string>Series:</string>
         </property>
        </widget>
       </item>
       <item row="0" column="1">
-       <widget class="QLineEdit" name="seriesLine" />
+       <widget class="QLineEdit" name="seriesLine"/>
       </item>
       <item row="1" column="0">
        <widget class="QLabel" name="label_2">
         <property name="text">
-         <string>卷号：</string>
+         <string>Volume:</string>
         </property>
        </widget>
       </item>
       <item row="1" column="1">
-       <widget class="QLineEdit" name="volumeLine" />
+       <widget class="QLineEdit" name="volumeLine"/>
       </item>
       <item row="1" column="2">
        <widget class="QCheckBox" name="bulkVolumeCheck">
@@ -68,72 +68,72 @@
          <bool>false</bool>
         </property>
         <property name="toolTip">
-         <string>&lt;b&gt;批量卷号编辑&lt;/b&gt;&lt;br&gt;勾选后可为多个文件批量指定卷号。&lt;br&gt;&lt;br&gt;&lt;b&gt;输入格式：&lt;/b&gt;&lt;br&gt;&lt;code&gt;5&lt;/code&gt; → 从 5 开始的序列（5, 6, 7……）&lt;br&gt;&lt;code&gt;1-10&lt;/code&gt; → 1 到 10 的范围&lt;br&gt;&lt;code&gt;1, 3, 5&lt;/code&gt; → 指定具体数值&lt;br&gt;&lt;br&gt;&lt;i&gt;注意：分配前会先按字母顺序对文件排序。&lt;/i&gt;</string>
+         <string>&lt;b&gt;Bulk Volume Editing&lt;/b&gt;&lt;br&gt;Check this box to assign volume numbers to multiple files.&lt;br&gt;&lt;br&gt;&lt;b&gt;Input formats:&lt;/b&gt;&lt;br&gt;&lt;code&gt;5&lt;/code&gt; → sequence starting from 5 (5, 6, 7...)&lt;br&gt;&lt;code&gt;1-10&lt;/code&gt; → range from 1 to 10&lt;br&gt;&lt;code&gt;1, 3, 5&lt;/code&gt; → specific values&lt;br&gt;&lt;br&gt;&lt;i&gt;Note: Files are sorted alphabetically before assignment.&lt;/i&gt;</string>
         </property>
         <property name="text">
-         <string />
+         <string/>
         </property>
        </widget>
       </item>
       <item row="3" column="0">
        <widget class="QLabel" name="label_3">
         <property name="text">
-         <string>期号：</string>
+         <string>Number:</string>
         </property>
        </widget>
       </item>
       <item row="3" column="1">
-       <widget class="QLineEdit" name="numberLine" />
+       <widget class="QLineEdit" name="numberLine"/>
       </item>
       <item row="4" column="0">
        <widget class="QLabel" name="label_4">
         <property name="text">
-         <string>编剧：</string>
+         <string>Writer:</string>
         </property>
        </widget>
       </item>
       <item row="4" column="1">
-       <widget class="QLineEdit" name="writerLine" />
+       <widget class="QLineEdit" name="writerLine"/>
       </item>
       <item row="5" column="0">
        <widget class="QLabel" name="label_5">
         <property name="text">
-         <string>作画：</string>
+         <string>Penciller:</string>
         </property>
        </widget>
       </item>
       <item row="5" column="1">
-       <widget class="QLineEdit" name="pencillerLine" />
+       <widget class="QLineEdit" name="pencillerLine"/>
       </item>
       <item row="6" column="0">
        <widget class="QLabel" name="label_6">
         <property name="text">
-         <string>墨线：</string>
+         <string>Inker:</string>
         </property>
        </widget>
       </item>
       <item row="6" column="1">
-       <widget class="QLineEdit" name="inkerLine" />
+       <widget class="QLineEdit" name="inkerLine"/>
       </item>
       <item row="7" column="0">
        <widget class="QLabel" name="label_7">
         <property name="text">
-         <string>上色：</string>
+         <string>Colorist:</string>
         </property>
        </widget>
       </item>
       <item row="7" column="1">
-       <widget class="QLineEdit" name="coloristLine" />
+       <widget class="QLineEdit" name="coloristLine"/>
       </item>
       <item row="2" column="0">
        <widget class="QLabel" name="label_8">
         <property name="text">
-         <string>标题：</string>
+         <string>Title:</string>
         </property>
        </widget>
       </item>
       <item row="2" column="1">
-       <widget class="QLineEdit" name="titleLine" />
+       <widget class="QLineEdit" name="titleLine"/>
       </item>
      </layout>
     </widget>
@@ -162,7 +162,7 @@
          </sizepolicy>
         </property>
         <property name="text">
-         <string />
+         <string/>
         </property>
        </widget>
       </item>
@@ -175,7 +175,7 @@
          </size>
         </property>
         <property name="text">
-         <string>保存</string>
+         <string>Save</string>
         </property>
         <property name="icon">
          <iconset resource="KCC.qrc">
@@ -192,7 +192,7 @@
          </size>
         </property>
         <property name="text">
-         <string>取消</string>
+         <string>Cancel</string>
         </property>
         <property name="icon">
          <iconset resource="KCC.qrc">
@@ -219,7 +219,7 @@
   <tabstop>cancelButton</tabstop>
  </tabstops>
  <resources>
-  <include location="KCC.qrc" />
+  <include location="KCC.qrc"/>
  </resources>
- <connections />
+ <connections/>
 </ui>

@@ -22,6 +22,7 @@ import io
 import os
 from pathlib import Path
 import mozjpeg_lossless_optimization
+import numpy as np
 from PIL import Image, ImageOps, ImageFile, ImageChops, ImageDraw
 
 from .rainbow_artifacts_eraser import erase_rainbow_artifacts
@@ -98,9 +99,9 @@ class ProfileData:
         'KPW34': ("Kindle Paperwhite 3/4/Oasis", (1072, 1448), Palette16, 1.0),
         'K810': ("Kindle 8/10", (600, 800), Palette16, 1.0),
         'KO': ("Kindle Oasis 2/3", (1264, 1680), Palette16, 1.0),
-        'K11': ("Kindle 11", (1072, 1448), Palette16, 1.0),
+        'K11': ("Kindle 11/2026", (1072, 1448), Palette16, 1.0),
         'KPW5': ("Kindle Paperwhite 5/Signature Edition", (1236, 1648), Palette16, 1.0),
-        'KPW6': ("Kindle Paperwhite 6", (1272, 1696), Palette16, 1.0),
+        'KPW6': ("Kindle Paperwhite 6/2026", (1272, 1696), Palette16, 1.0),
         'KS1860': ("Kindle 1860", (1860, 1920), Palette16, 1.0),
         'KS1920': ("Kindle 1920", (1920, 1920), Palette16, 1.0),
         'KS1240': ("Kindle 1240", (1240, 1860), Palette16, 1.0),
@@ -125,7 +126,7 @@ class ProfileData:
         'KoAH2O': ("Kobo Aura H2O", (1080, 1430), Palette16, 1.0),
         'KoAO': ("Kobo Aura ONE", (1404, 1872), Palette16, 1.0),
         'KoN': ("Kobo Nia", (758, 1024), Palette16, 1.0),
-        'KoC': ("Kobo Clara HD/Kobo Clara 2E", (1072, 1448), Palette16, 1.0),
+        'KoC': ("Kobo Clara HD/Kobo Clara 2E/Kobo Clara BW", (1072, 1448), Palette16, 1.0),
         'KoCC': ("Kobo Clara Colour", (1072, 1448), Palette16, 1.0),
         'KoL': ("Kobo Libra H2O/Kobo Libra 2", (1264, 1680), Palette16, 1.0),
         'KoLC': ("Kobo Libra Colour", (1264, 1680), Palette16, 1.0),
@@ -141,11 +142,31 @@ class ProfileData:
         'RmkPPMove': ("reMarkable Paper Pro Move", (954, 1696), Palette16, 1.0),
     }
 
+    FIXED_RESOLUTIONS = [
+        (1072, 1448),
+        (1264, 1680),
+        (1404, 1872),
+        (1536, 2048),
+        (1650, 2200),
+        (1860, 2480),
+        (2400, 3200),
+    ]
+
+    FIXED_RESOLUTIONS.reverse()
+
+    FIXED_RES_STRINGS = [f'{w}x{h}' for w, h in FIXED_RESOLUTIONS]
+
+    ProfilesFixed = {}
+    for res, s in zip(FIXED_RESOLUTIONS, FIXED_RES_STRINGS):
+        w, h = res
+        ProfilesFixed[s] = (s, res, Palette16, 1.0)
+
     Profiles = {
         **ProfilesKindle,
         **ProfilesKobo,
         **ProfilesRemarkable,
         'OTHER': ("Other", (0, 0), Palette16, 1.0),
+        **ProfilesFixed
     }
 
 
@@ -162,6 +183,12 @@ class ComicPageParser:
         # Image.open(srcImgPath).verify()
         with Image.open(srcImgPath) as im:
             self.image = im.copy()
+
+        # https://github.com/python-pillow/Pillow/issues/3011#issuecomment-552141447
+        if "I;16" in self.image.mode:
+            array = np.uint8(np.array(self.image) / 256)
+            self.image = Image.fromarray(array)
+        
         self.original_color_mode = self.image.mode
 
         self.page_background_color = self.fillCheck()
@@ -420,9 +447,12 @@ class ComicPage:
         if self.opt.hq:
             self.size = (int(self.size[0] * 1.5), int(self.size[1] * 1.5))
         self.original_color_mode = image.mode
-        # TODO: color check earlier
-        self.image = image.convert("RGB")
+        self.image = image
         self.color = colorCheck(self.image, self.original_color_mode, self.opt)
+        if self.color:
+            self.image = self.image.convert('RGB')
+        else:
+            self.image = self.image.convert('L')
         self.colorOutput = self.color and self.opt.forcecolor
         self.page_background_color = page_background_color
         self.fill = fill

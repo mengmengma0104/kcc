@@ -16,7 +16,7 @@ import time
 from ctypes import wintypes
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXE_NAME = 'KCC_11.2.0_zh.exe'
+EXE_NAME = 'KCC_12.1.1_zh.exe'
 EXE = os.path.join(ROOT, 'dist', EXE_NAME)
 OUT = os.path.join(ROOT, 'docs', 'screenshot.png')
 
@@ -25,7 +25,7 @@ gdi32 = ctypes.WinDLL('gdi32', use_last_error=True)
 kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 
 MIN_COLORS = 100        # a painted UI has a rich palette
-MIN_TEXT_PIXELS = 1500  # near-white pixel samples, i.e. rendered text
+MIN_TEXT_PIXELS = 1200  # 校准依据：已绘制界面实测 ~1050-1400+，未重绘画面仅 ~3
 MAX_BG_BRIGHTNESS = 80  # the app uses a dark theme
 PROCESS_TERMINATE = 0x0001
 
@@ -42,6 +42,10 @@ def find_window(timeout=90):
             cls = ctypes.create_unicode_buffer(256)
             user32.GetClassNameW(h, cls, 256)
             if user32.IsWindowVisible(h) and 'QWindow' in cls.value:
+                wr = wintypes.RECT()
+                user32.GetWindowRect(h, ctypes.byref(wr))
+                if wr.right - wr.left < 600:
+                    return True  # 主窗必有宽度，滤掉托盘气泡等小窗
                 n = user32.GetWindowTextLengthW(h)
                 buf = ctypes.create_unicode_buffer(n + 1)
                 user32.GetWindowTextW(h, buf, n + 1)
@@ -121,6 +125,12 @@ def quality(img):
 
 
 def main():
+    # DPI-aware：否则 125% 缩放下 GetWindowRect 返回虚拟化坐标，
+    # PrintWindow 实际渲染物理尺寸，右侧被裁掉
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        pass
     if not os.path.exists(EXE):
         raise SystemExit('build the exe first: %s not found' % EXE)
 
@@ -134,6 +144,13 @@ def main():
     ok = False
     try:
         user32.SetForegroundWindow(hwnd)
+        time.sleep(1.5)
+        # 强制重绘：微缩放窗口再还原，Qt 会对暴露区域重绘（新会话偶发不重绘）
+        rect = wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        user32.MoveWindow(hwnd, rect.left, rect.top, rect.right - rect.left + 1, rect.bottom - rect.top, True)
+        time.sleep(0.4)
+        user32.MoveWindow(hwnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, True)
         time.sleep(1.5)
         img = capture(hwnd)
         ok, stats = quality(img)

@@ -21,25 +21,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TARGET = os.path.join(ROOT, 'kindlecomicconverter', 'KCC_gui.py')
 
-EXPECTED_FORMATS = [
-    "MOBI/AZW3", "EPUB", "CBZ", "Folder of images", "PDF", "PDF (200MB limit)",
-    "KFX (Send to Kindle EPUB)", "MOBI + EPUB", "EPUB (200MB limit)",
-    "MOBI + EPUB (200MB limit)",
-]
-EXPECTED_PROFILES = [
-    "Kindle Oasis 9/10", "Kindle 8/10", "Kindle Oasis 8", "Kindle Voyage",
-    "Kindle 1860x1920", "Kindle 1920x1920", "Kindle 1240x1860", "Kindle 1324x1986",
-    "Kindle Scribe 1/2", "Kindle Scribe 3", "Kindle Scribe Colorsoft", "Kindle 11",
-    "Kindle Paperwhite 11", "Kindle Paperwhite 12", "Kindle Colorsoft",
-    "Kindle Paperwhite 7/10", "Kindle Paperwhite 5/6", "Kindle 4/5/7", "Kindle DX",
-    "Kobo Mini/Touch", "Kobo Glo", "Kobo Glo HD", "Kobo Aura", "Kobo Aura HD",
-    "Kobo Aura H2O", "Kobo Aura ONE", "Kobo Clara HD", "Kobo Libra H2O", "Kobo Forma",
-    "Kindle 1", "Kindle 2", "Kindle Keyboard", "Kindle Touch", "Kobo Nia",
-    "Kobo Clara 2E", "Kobo Clara Colour", "Kobo Libra 2", "Kobo Libra Colour",
-    "Kobo Sage", "Kobo Elipsa", "reMarkable 1", "reMarkable 2",
-    "reMarkable Paper Pro", "reMarkable Paper Pro Move", "Other",
-]
-EXPECTED_GUI_LEN = 50
+EXPECTED_FORMATS = ['MOBI/AZW3', 'EPUB', 'CBZ', 'Preview/Folder of images', 'PDF', 'PDF (200MB limit)', 'KFX (Send to Kindle EPUB)', 'MOBI + EPUB', 'EPUB (200MB limit)', 'MOBI + EPUB (200MB limit)']
+EXPECTED_PROFILES = ['Kindle Oasis 9/10', 'Kindle 8/10', 'Kindle Oasis 8', 'Kindle Voyage', 'Kindle 1860x1920', 'Kindle 1920x1920', 'Kindle 1240x1860', 'Kindle 1324x1986', 'Kindle Scribe 1/2', 'Kindle Scribe 3', 'Kindle Scribe Colorsoft', 'Kindle 11/2026', 'Kindle Paperwhite 11', 'Kindle Paperwhite 12/2026', 'Kindle Colorsoft', 'Kindle Paperwhite 7/10', 'Kindle Paperwhite 5/6', 'Kindle 4/5/7', 'Kindle DX', 'Kobo Mini/Touch', 'Kobo Glo', 'Kobo Glo HD', 'Kobo Aura', 'Kobo Aura HD', 'Kobo Aura H2O', 'Kobo Aura ONE', 'Kobo Clara HD', 'Kobo Libra H2O', 'Kobo Forma', 'Kindle 1', 'Kindle 2', 'Kindle Keyboard', 'Kindle Touch', 'Kobo Nia', 'Kobo Clara 2E/BW', 'Kobo Clara Colour', 'Kobo Libra 2', 'Kobo Libra Colour', 'Kobo Sage', 'Kobo Elipsa', 'reMarkable 1/2/Pure', 'reMarkable Paper Pro', 'reMarkable Paper Pro Move', 'Other']
+EXPECTED_GUI_LEN = 49
 EXPECTED_SEPARATORS = 5
 
 
@@ -97,12 +81,20 @@ def main():
     # 下拉框查找必须走 currentData()，不能读显示文字
     n_current = src.count('currentData()')
     n_text = src.count('deviceBox.currentText') + src.count('formatBox.currentText')
-    print('currentData() sites: %d (expect 19) | currentText on combos: %d (expect 0)'
+    print('currentData() sites: %d (expect 20) | currentText on combos: %d (expect 0)'
           % (n_current, n_text))
-    if n_current != 19:
-        failures.append('currentData() count changed: %d' % n_current)
+    if n_current != 20:
+        failures.append('currentData() count changed: %d (expect 20)' % n_current)
     if n_text:
         failures.append('combo lookups still read displayed text')
+
+    # 固定分辨率设备项（12.1.1 起 image.py 动态生成）必须有显示名映射
+    dn_src = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'display_names.py'), encoding='utf-8').read()
+    for res in ['2400x3200', '1860x2480', '1650x2200', '1536x2048',
+                '1404x1872', '1264x1680', '1072x1448']:
+        if ("'%s':" % res) not in dn_src:
+            failures.append('DEVICE_NAMES 缺固定分辨率键 %s' % res)
+    print('fixed-res display keys: 7 项检查完成')
 
     # 跨页对话框不得再用标签文字做状态判断
     spread = io.open(os.path.join(ROOT, 'kindlecomicconverter', 'KCC_spread_label.py'),

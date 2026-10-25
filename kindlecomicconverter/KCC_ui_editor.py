@@ -179,21 +179,21 @@ class Ui_editorDialog(object):
     # setupUi
 
     def retranslateUi(self, editorDialog):
-        editorDialog.setWindowTitle(QCoreApplication.translate("editorDialog", u"元数据编辑器", None))
-        self.label_1.setText(QCoreApplication.translate("editorDialog", u"系列：", None))
-        self.label_2.setText(QCoreApplication.translate("editorDialog", u"卷号：", None))
+        editorDialog.setWindowTitle(QCoreApplication.translate("editorDialog", u"Metadata editor", None))
+        self.label_1.setText(QCoreApplication.translate("editorDialog", u"Series:", None))
+        self.label_2.setText(QCoreApplication.translate("editorDialog", u"Volume:", None))
 #if QT_CONFIG(tooltip)
-        self.bulkVolumeCheck.setToolTip(QCoreApplication.translate("editorDialog", u"<b>批量卷号编辑</b><br>勾选后可为多个文件批量指定卷号。<br><br><b>输入格式：</b><br><code>5</code> → 从 5 开始的序列（5, 6, 7……）<br><code>1-10</code> → 1 到 10 的范围<br><code>1, 3, 5</code> → 指定具体数值<br><br><i>注意：分配前会先按字母顺序对文件排序。</i>", None))
+        self.bulkVolumeCheck.setToolTip(QCoreApplication.translate("editorDialog", u"<b>Bulk Volume Editing</b><br>Check this box to assign volume numbers to multiple files.<br><br><b>Input formats:</b><br><code>5</code> \u2192 sequence starting from 5 (5, 6, 7...)<br><code>1-10</code> \u2192 range from 1 to 10<br><code>1, 3, 5</code> \u2192 specific values<br><br><i>Note: Files are sorted alphabetically before assignment.</i>", None))
 #endif // QT_CONFIG(tooltip)
         self.bulkVolumeCheck.setText("")
-        self.label_3.setText(QCoreApplication.translate("editorDialog", u"期号：", None))
-        self.label_4.setText(QCoreApplication.translate("editorDialog", u"编剧：", None))
-        self.label_5.setText(QCoreApplication.translate("editorDialog", u"作画：", None))
-        self.label_6.setText(QCoreApplication.translate("editorDialog", u"墨线：", None))
-        self.label_7.setText(QCoreApplication.translate("editorDialog", u"上色：", None))
-        self.label_8.setText(QCoreApplication.translate("editorDialog", u"标题：", None))
+        self.label_3.setText(QCoreApplication.translate("editorDialog", u"Number:", None))
+        self.label_4.setText(QCoreApplication.translate("editorDialog", u"Writer:", None))
+        self.label_5.setText(QCoreApplication.translate("editorDialog", u"Penciller:", None))
+        self.label_6.setText(QCoreApplication.translate("editorDialog", u"Inker:", None))
+        self.label_7.setText(QCoreApplication.translate("editorDialog", u"Colorist:", None))
+        self.label_8.setText(QCoreApplication.translate("editorDialog", u"Title:", None))
         self.statusLabel.setText("")
-        self.okButton.setText(QCoreApplication.translate("editorDialog", u"保存", None))
-        self.cancelButton.setText(QCoreApplication.translate("editorDialog", u"取消", None))
+        self.okButton.setText(QCoreApplication.translate("editorDialog", u"Save", None))
+        self.cancelButton.setText(QCoreApplication.translate("editorDialog", u"Cancel", None))
     # retranslateUi
 
