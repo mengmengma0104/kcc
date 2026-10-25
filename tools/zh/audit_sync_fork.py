@@ -114,8 +114,7 @@ else:
                    payload={'base_tree': fork_tree_sha, 'tree': entries})
     head = api('GET', '/repos/%s/branches/%s' % (FORK, BRANCH))['commit']['sha']
     commit = api('POST', '/repos/%s/git/commits' % FORK,
-                 payload={'message': '与主仓库同步：壁纸模式修复后的源文件与工具链'
-                          '（KCC_ui.py / KCC.ui / translations.py / 审计与检查脚本 / 哈希文件）',
+                 payload={'message': SYNC_COMMIT_MESSAGE,
                           'tree': new_tree['sha'], 'parents': [head]})
     api('PATCH', '/repos/%s/git/refs/heads/%s' % (FORK, BRANCH),
         payload={'sha': commit['sha'], 'force': True})
